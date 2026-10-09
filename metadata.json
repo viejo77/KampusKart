@@ -1,0 +1,6 @@
+{
+  "name": "KampüsKart - Toplu Öğrenci Kimlik Kartı Stüdyosu",
+  "description": "Excel/CSV öğrenci listeleri ve okul numarasıyla isimlendirilmiş fotoğrafları otomatik eşleştirerek hazır veya özel şablonlarla toplu PDF öğrenci kimlik kartı üreten profesyonel tasarım aracı.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
