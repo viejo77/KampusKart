@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import * as XLSX from 'xlsx';
+import { calculateValidityPeriodByClass } from '../constants';
 import { CardTemplate, PdfExportSettings, StudentRecord } from '../types';
 import { renderStudentCardToCanvas } from './cardRenderer';
 
@@ -283,10 +284,12 @@ export function parseSpreadsheetFile(
             } else if (rawSchool1) {
               schoolName = rawSchool1.replace(/\s*\|\s*|\s*\/\s*/g, '\n');
             }
+            const rawYearCell = yearCol ? String(row[yearCol] ?? '').trim() : '';
+            // If spreadsheet doesn't specify a custom multi-year validity or only has a generic year, calculate validity period by class grade (9->4yr, 10->3yr, 11->2yr, 12->1yr)
             const academicYear =
-              yearCol && String(row[yearCol] ?? '').trim()
-                ? String(row[yearCol] ?? '').trim()
-                : defaultAcademicYear;
+              rawYearCell && rawYearCell.toLowerCase().includes('yıl')
+                ? rawYearCell
+                : calculateValidityPeriodByClass(className, rawYearCell || defaultAcademicYear);
 
             const bloodType = bloodCol ? String(row[bloodCol] ?? '').trim() : 'A Rh(+)';
             const emergencyPhone = emergencyPhoneCol
@@ -342,7 +345,8 @@ export function downloadSampleExcelFile(students: StudentRecord[]) {
       'Sınıfı': s.className,
       'Okul İsmi 1. Satır': parts[0] || '',
       'Okul İsmi 2. Satır': parts[1] || '',
-      'Öğretim Yılı': s.academicYear || '2026-2027',
+      'Dönem / Geçerlilik Süresi':
+        s.academicYear || calculateValidityPeriodByClass(s.className, '2026'),
       'Kan Grubu': s.bloodType || 'A Rh(+)',
       'Acil Veli Tel': s.emergencyPhone || '0532 000 00 00',
     };

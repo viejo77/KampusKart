@@ -1,5 +1,35 @@
 import { BackFieldKey, CardTemplate, FieldPosition, StudentRecord } from './types';
 
+/**
+ * Calculates the validity period (Dönem / Geçerlilik Süresi) based on student's grade level:
+ * - 9. Sınıf  -> 4 Yıl (e.g., 2026-2030 (4 Yıl))
+ * - 10. Sınıf -> 3 Yıl (e.g., 2026-2029 (3 Yıl))
+ * - 11. Sınıf -> 2 Yıl (e.g., 2026-2028 (2 Yıl))
+ * - 12. Sınıf -> 1 Yıl (e.g., 2026-2027 (1 Yıl))
+ */
+export function calculateValidityPeriodByClass(
+  className: string,
+  baseStartYearInput?: string
+): string {
+  const yearMatch = (baseStartYearInput || '2026').match(/\b(20\d{2})\b/);
+  const startYear = yearMatch ? parseInt(yearMatch[1], 10) : 2026;
+
+  const gradeMatch = (className || '').trim().match(/^(\d{1,2})/);
+  const grade = gradeMatch ? parseInt(gradeMatch[1], 10) : null;
+
+  let durationYears = 1;
+  if (grade === 9) durationYears = 4;
+  else if (grade === 10) durationYears = 3;
+  else if (grade === 11) durationYears = 2;
+  else if (grade === 12) durationYears = 1;
+  else {
+    return `${startYear}-${startYear + 1}`;
+  }
+
+  const endYear = startYear + durationYears;
+  return `${startYear}-${endYear} (${durationYears} Yıl)`;
+}
+
 // Generate realistic, high-resolution SVG portrait data URLs so demo students have crisp, zero-broken-image portraits out of the box
 function createStudentPortraitDataUrl(
   initials: string,
@@ -325,7 +355,7 @@ export const INITIAL_STUDENTS: StudentRecord[] = [
     fullName: 'Elif Yılmaz',
     schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen Lisesi',
     className: '10-A',
-    academicYear: '2026-2027',
+    academicYear: calculateValidityPeriodByClass('10-A', '2026'),
     bloodType: 'A Rh(+)',
     emergencyPhone: '0532 111 22 33',
     photoFileName: '1042.jpg',
@@ -337,7 +367,7 @@ export const INITIAL_STUDENTS: StudentRecord[] = [
     fullName: 'Kerem Demir',
     schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen Lisesi',
     className: '10-A',
-    academicYear: '2026-2027',
+    academicYear: calculateValidityPeriodByClass('10-A', '2026'),
     bloodType: '0 Rh(+)',
     emergencyPhone: '0533 222 33 44',
     photoFileName: '1045.jpg',
@@ -349,7 +379,7 @@ export const INITIAL_STUDENTS: StudentRecord[] = [
     fullName: 'Zeynep Kaya',
     schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen Lisesi',
     className: '11-B',
-    academicYear: '2026-2027',
+    academicYear: calculateValidityPeriodByClass('11-B', '2026'),
     bloodType: 'B Rh(+)',
     emergencyPhone: '0542 333 44 55',
     photoFileName: '1088.jpg',
@@ -361,7 +391,7 @@ export const INITIAL_STUDENTS: StudentRecord[] = [
     fullName: 'Mert Çelik',
     schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen Lisesi',
     className: '11-B',
-    academicYear: '2026-2027',
+    academicYear: calculateValidityPeriodByClass('11-B', '2026'),
     bloodType: 'AB Rh(+)',
     emergencyPhone: '0505 444 55 66',
     photoFileName: '1104.jpg',
@@ -373,7 +403,7 @@ export const INITIAL_STUDENTS: StudentRecord[] = [
     fullName: 'Defne Şahin',
     schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen Lisesi',
     className: '9-C',
-    academicYear: '2026-2027',
+    academicYear: calculateValidityPeriodByClass('9-C', '2026'),
     bloodType: 'A Rh(-)',
     emergencyPhone: '0535 555 66 77',
     photoFileName: '1129.jpg',
@@ -385,7 +415,7 @@ export const INITIAL_STUDENTS: StudentRecord[] = [
     fullName: 'Caner Aydın',
     schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen Lisesi',
     className: '12-A',
-    academicYear: '2026-2027',
+    academicYear: calculateValidityPeriodByClass('12-A', '2026'),
     bloodType: '0 Rh(-)',
     emergencyPhone: '0544 666 77 88',
     photoFileName: '1156.jpg',
@@ -414,7 +444,8 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
         visible: true,
         x: 54,
         y: 3.5,
-        fontSize: 22,
+        fontSize: 18,
+        secondLineFontSize: 22,
         fontWeight: '700',
         color: '#ffffff',
         align: 'center',
@@ -489,7 +520,7 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
       },
       academicYear: {
         id: 'academicYear',
-        label: 'Öğretim Yılı',
+        label: 'Dönem / Geçerlilik',
         visible: true,
         x: 38,
         y: 68,
@@ -498,7 +529,7 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
         color: '#475569',
         align: 'left',
         showPrefix: true,
-        prefixText: 'Öğretim Yılı',
+        prefixText: 'Dönem / Geçerlilik Süresi',
       },
       barcode: {
         id: 'barcode',
@@ -534,9 +565,10 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
         id: 'schoolName',
         label: 'Okul İsmi',
         visible: true,
-        x: 6,
+        x: 16.5,
         y: 4.5,
-        fontSize: 22,
+        fontSize: 18,
+        secondLineFontSize: 22,
         fontWeight: '700',
         color: '#ffffff',
         align: 'left',
@@ -547,8 +579,8 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
         label: 'Kart Başlığı',
         visible: true,
         x: 94,
-        y: 11,
-        fontSize: 18,
+        y: 13.5,
+        fontSize: 16,
         fontWeight: '600',
         color: '#bae6fd',
         align: 'right',
@@ -611,7 +643,7 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
       },
       academicYear: {
         id: 'academicYear',
-        label: 'Öğretim Yılı',
+        label: 'Dönem / Geçerlilik',
         visible: true,
         x: 7,
         y: 70,
@@ -620,7 +652,7 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
         color: '#475569',
         align: 'left',
         showPrefix: true,
-        prefixText: 'Dönem',
+        prefixText: 'Dönem / Geçerlilik Süresi',
       },
       barcode: {
         id: 'barcode',
@@ -658,7 +690,8 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
         visible: true,
         x: 52,
         y: 3.5,
-        fontSize: 22,
+        fontSize: 18,
+        secondLineFontSize: 22,
         fontWeight: '700',
         color: '#ffffff',
         align: 'center',
@@ -733,7 +766,7 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
       },
       academicYear: {
         id: 'academicYear',
-        label: 'Öğretim Yılı',
+        label: 'Dönem / Geçerlilik',
         visible: true,
         x: 38,
         y: 68,
@@ -742,7 +775,7 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
         color: '#475569',
         align: 'left',
         showPrefix: true,
-        prefixText: 'Akademik Yıl',
+        prefixText: 'Dönem / Geçerlilik Süresi',
       },
       barcode: {
         id: 'barcode',
@@ -780,7 +813,8 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
         visible: true,
         x: 50,
         y: 6,
-        fontSize: 20,
+        fontSize: 16,
+        secondLineFontSize: 20,
         fontWeight: '700',
         color: '#ffffff',
         align: 'center',
@@ -854,7 +888,7 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
       },
       academicYear: {
         id: 'academicYear',
-        label: 'Öğretim Yılı',
+        label: 'Dönem / Geçerlilik',
         visible: true,
         x: 50,
         y: 82,

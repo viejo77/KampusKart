@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import {
   BUILT_IN_TEMPLATES,
+  calculateValidityPeriodByClass,
   INITIAL_STUDENTS,
 } from './constants';
 import {
@@ -395,13 +396,13 @@ export default function App() {
     e.target.value = '';
   };
 
-  // Apply Global School Name & Academic Year to all rows
+  // Apply Global School Name & Grade-Based Validity Period (Dönem) to all rows
   const handleApplyGlobalSchoolToAll = () => {
     setStudents((prev) =>
       prev.map((s) => ({
         ...s,
         schoolName: combinedGlobalSchoolName,
-        academicYear: globalAcademicYear,
+        academicYear: calculateValidityPeriodByClass(s.className, globalAcademicYear),
       }))
     );
     updateActiveTemplate((prev) => ({
@@ -411,7 +412,7 @@ export default function App() {
     }));
     setStatusBanner({
       type: 'info',
-      message: `Tüm öğrencilerin okul adı (${globalSchoolLine1} / ${globalSchoolLine2}) ve öğretim yılı "${globalAcademicYear}" olarak güncellendi.`,
+      message: `Tüm öğrencilerin okul adı ve sınıf seviyesine göre geçerlilik dönemleri (9. Sınıf: 4 Yıl, 10. Sınıf: 3 Yıl, 11. Sınıf: 2 Yıl, 12. Sınıf: 1 Yıl) otomatik güncellendi.`,
     });
   };
 
@@ -421,15 +422,16 @@ export default function App() {
     if (!newStudent.studentNumber.trim() || !newStudent.fullName.trim()) return;
 
     const cleanNo = newStudent.studentNumber.trim();
+    const cleanClass = newStudent.className.trim() || '9-A';
     const matchedPhoto = photoPool.get(normalizePhotoMatchKey(cleanNo));
 
     const record: StudentRecord = {
       id: `std-${Date.now()}`,
       studentNumber: cleanNo,
       fullName: newStudent.fullName.trim(),
-      className: newStudent.className.trim() || '9-A',
+      className: cleanClass,
       schoolName: newStudent.schoolName.trim() || combinedGlobalSchoolName,
-      academicYear: globalAcademicYear,
+      academicYear: calculateValidityPeriodByClass(cleanClass, globalAcademicYear),
       bloodType: 'A Rh(+)',
       emergencyPhone: '0532 000 00 00',
       photoDataUrl: matchedPhoto?.dataUrl,
@@ -461,6 +463,9 @@ export default function App() {
             updated.photoDataUrl = match.dataUrl;
             updated.photoFileName = match.fileName;
           }
+        } else if (field === 'className') {
+          // Automatically recalculate validity period when student's class grade changes (9->4yr, 10->3yr, 11->2yr, 12->1yr)
+          updated.academicYear = calculateValidityPeriodByClass(value, globalAcademicYear);
         }
         return updated;
       })
@@ -789,30 +794,82 @@ export default function App() {
               <label className="text-xs font-medium text-slate-600 whitespace-nowrap">
                 Okul İsmi (2 Satır):
               </label>
-              <input
-                type="text"
-                value={globalSchoolLine1}
-                onChange={(e) => setGlobalSchoolLine1(e.target.value)}
-                placeholder="1. Satır (Örn: T.C. MEB / Valilik)"
-                className="px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600 w-44"
-              />
-              <input
-                type="text"
-                value={globalSchoolLine2}
-                onChange={(e) => setGlobalSchoolLine2(e.target.value)}
-                placeholder="2. Satır (Örn: Atatürk Fen Lisesi)"
-                className="px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600 w-44"
-              />
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  value={globalSchoolLine1}
+                  onChange={(e) => setGlobalSchoolLine1(e.target.value)}
+                  placeholder="1. Satır (Örn: T.C. MEB / Valilik)"
+                  className="px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600 w-40"
+                />
+                <input
+                  type="number"
+                  min={10}
+                  max={38}
+                  value={activeTemplate.fields.schoolName.fontSize}
+                  onChange={(e) => {
+                    const val = Math.max(10, Math.min(38, parseInt(e.target.value, 10) || 18));
+                    updateActiveTemplate((prev) => ({
+                      ...prev,
+                      fields: {
+                        ...prev.fields,
+                        schoolName: {
+                          ...prev.fields.schoolName,
+                          fontSize: val,
+                        },
+                      },
+                    }));
+                  }}
+                  title="1. Satır Yazı Boyutu (px)"
+                  className="w-13 px-1.5 py-1.5 text-xs font-mono text-center border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                />
+              </div>
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  value={globalSchoolLine2}
+                  onChange={(e) => setGlobalSchoolLine2(e.target.value)}
+                  placeholder="2. Satır (Örn: Atatürk Fen Lisesi)"
+                  className="px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600 w-40"
+                />
+                <input
+                  type="number"
+                  min={10}
+                  max={42}
+                  value={
+                    activeTemplate.fields.schoolName.secondLineFontSize ??
+                    activeTemplate.fields.schoolName.fontSize
+                  }
+                  onChange={(e) => {
+                    const val = Math.max(10, Math.min(42, parseInt(e.target.value, 10) || 22));
+                    updateActiveTemplate((prev) => ({
+                      ...prev,
+                      fields: {
+                        ...prev.fields,
+                        schoolName: {
+                          ...prev.fields.schoolName,
+                          secondLineFontSize: val,
+                        },
+                      },
+                    }));
+                  }}
+                  title="2. Satır Yazı Boyutu (px)"
+                  className="w-13 px-1.5 py-1.5 text-xs font-mono text-center border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                />
+              </div>
             </div>
             <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-slate-600 whitespace-nowrap">
-                Dönem:
+              <label
+                className="text-xs font-medium text-slate-600 whitespace-nowrap"
+                title="Başlangıç yılına göre 9. sınıflar +4 yıl, 10. sınıflar +3 yıl, 11. sınıflar +2 yıl, 12. sınıflar +1 yıl olarak otomatik hesaplanır"
+              >
+                Başlangıç Yılı:
               </label>
               <input
                 type="text"
                 value={globalAcademicYear}
                 onChange={(e) => setGlobalAcademicYear(e.target.value)}
-                placeholder="2026-2027"
+                placeholder="2026"
                 className="px-2.5 py-1.5 text-xs font-mono border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600 w-24"
               />
             </div>
@@ -820,8 +877,9 @@ export default function App() {
               type="button"
               onClick={handleApplyGlobalSchoolToAll}
               className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors whitespace-nowrap cursor-pointer"
+              title="Okul adını ve sınıfa göre 4/3/2/1 yıllık geçerlilik dönemlerini tüm öğrencilere uygula"
             >
-              Tümüne Uygula
+              Tümüne Uygula (Sınıfa Göre Dönem)
             </button>
           </div>
         </section>
@@ -1043,9 +1101,10 @@ export default function App() {
                     <thead className="bg-slate-50 sticky top-0 z-10 border-b border-slate-200 text-[11px] font-semibold text-slate-500">
                       <tr>
                         <th className="py-2.5 pl-4 pr-2 w-14">Foto</th>
-                        <th className="py-2.5 px-2 w-24">Okul No</th>
+                        <th className="py-2.5 px-2 w-20">Okul No</th>
                         <th className="py-2.5 px-2">Adı Soyadı</th>
-                        <th className="py-2.5 px-2 w-20">Sınıfı</th>
+                        <th className="py-2.5 px-2 w-18">Sınıfı</th>
+                        <th className="py-2.5 px-2 w-36">Dönem (Geçerlilik)</th>
                         <th className="py-2.5 px-2">Okul İsmi (2 Satır)</th>
                         <th className="py-2.5 pl-2 pr-4 text-right w-24">Durum / İşlem</th>
                       </tr>
@@ -1053,7 +1112,7 @@ export default function App() {
                     <tbody className="divide-y divide-slate-100 text-xs">
                       {filteredStudents.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="py-12 text-center text-slate-500">
+                          <td colSpan={7} className="py-12 text-center text-slate-500">
                             Kriterlere uygun öğrenci kaydı bulunamadı. Yukarıdan Excel yükleyebilir veya yeni öğrenci ekleyebilirsiniz.
                           </td>
                         </tr>
@@ -1147,6 +1206,23 @@ export default function App() {
                                     )
                                   }
                                   className="w-16 px-1.5 py-1 font-medium text-slate-700 bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-600 focus:bg-white rounded focus:outline-none"
+                                />
+                              </td>
+
+                              {/* Validity Period (Dönem - Auto calculated by grade: 9->4yr, 10->3yr, 11->2yr, 12->1yr) */}
+                              <td className="py-2 px-2 font-mono tabular-nums">
+                                <input
+                                  type="text"
+                                  value={student.academicYear || ''}
+                                  onChange={(e) =>
+                                    handleUpdateStudentField(
+                                      student.id,
+                                      'academicYear',
+                                      e.target.value
+                                    )
+                                  }
+                                  title="9. Sınıf: 4 Yıl | 10. Sınıf: 3 Yıl | 11. Sınıf: 2 Yıl | 12. Sınıf: 1 Yıl"
+                                  className="w-34 px-1.5 py-1 text-[11px] font-medium text-blue-700 bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-600 focus:bg-white rounded focus:outline-none"
                                 />
                               </td>
 
@@ -1934,65 +2010,160 @@ export default function App() {
                       activeSelectedFieldKey !== 'barcode' &&
                       activeSelectedFieldKey !== 'backBarcode' && (
                         <div className="space-y-3 pt-2 border-t border-slate-200">
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <div className="flex justify-between text-xs mb-1">
-                                <span className="text-slate-600 font-medium">Yazı Boyutu</span>
-                                <span className="font-mono font-semibold">
-                                  {currentFieldConfig.fontSize}px
-                                </span>
-                              </div>
-                              <input
-                                type="range"
-                                min={11}
-                                max={44}
-                                step={1}
-                                value={currentFieldConfig.fontSize}
-                                onChange={(e) =>
-                                  updateCurrentSelectedField({
-                                    fontSize: parseInt(e.target.value, 10),
-                                  })
-                                }
-                                className="w-full accent-blue-600"
-                              />
-                            </div>
+                          {activeSelectedFieldKey === 'schoolName' ? (
+                            <div className="space-y-3">
+                              <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                  <div className="flex justify-between text-xs mb-1">
+                                    <span className="text-slate-700 font-semibold">
+                                      1. Satır Yazı Boyutu
+                                    </span>
+                                    <span className="font-mono font-semibold text-blue-700">
+                                      {currentFieldConfig.fontSize}px
+                                    </span>
+                                  </div>
+                                  <input
+                                    type="range"
+                                    min={10}
+                                    max={38}
+                                    step={1}
+                                    value={currentFieldConfig.fontSize}
+                                    onChange={(e) =>
+                                      updateCurrentSelectedField({
+                                        fontSize: parseInt(e.target.value, 10),
+                                      })
+                                    }
+                                    className="w-full accent-blue-600"
+                                  />
+                                </div>
 
-                            <div>
-                              <label className="block text-xs text-slate-600 font-medium mb-1">
-                                Yazı Rengi & Hizalama
-                              </label>
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="color"
-                                  value={currentFieldConfig.color}
-                                  onChange={(e) =>
-                                    updateCurrentSelectedField({ color: e.target.value })
-                                  }
-                                  className="w-8 h-7 rounded border border-slate-200 cursor-pointer"
-                                />
-                                <div className="flex flex-1 bg-white rounded border border-slate-200 overflow-hidden text-xs">
-                                  {(['left', 'center', 'right'] as const).map((align) => (
-                                    <button
-                                      key={align}
-                                      type="button"
-                                      onClick={() => updateCurrentSelectedField({ align })}
-                                      className={`flex-1 py-1 font-medium ${
-                                        currentFieldConfig.align === align
-                                          ? 'bg-blue-600 text-white'
-                                          : 'text-slate-600 hover:bg-slate-50'
-                                      }`}
-                                    >
-                                      {align === 'left'
-                                        ? 'Sol'
-                                        : align === 'center'
-                                        ? 'Orta'
-                                        : 'Sağ'}
-                                    </button>
-                                  ))}
+                                <div>
+                                  <div className="flex justify-between text-xs mb-1">
+                                    <span className="text-slate-700 font-semibold">
+                                      2. Satır Yazı Boyutu
+                                    </span>
+                                    <span className="font-mono font-semibold text-blue-700">
+                                      {currentFieldConfig.secondLineFontSize ??
+                                        currentFieldConfig.fontSize}
+                                      px
+                                    </span>
+                                  </div>
+                                  <input
+                                    type="range"
+                                    min={10}
+                                    max={44}
+                                    step={1}
+                                    value={
+                                      currentFieldConfig.secondLineFontSize ??
+                                      currentFieldConfig.fontSize
+                                    }
+                                    onChange={(e) =>
+                                      updateCurrentSelectedField({
+                                        secondLineFontSize: parseInt(e.target.value, 10),
+                                      })
+                                    }
+                                    className="w-full accent-blue-600"
+                                  />
+                                </div>
+                              </div>
+
+                              <div>
+                                <label className="block text-xs text-slate-600 font-medium mb-1">
+                                  Yazı Rengi & Hizalama
+                                </label>
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="color"
+                                    value={currentFieldConfig.color}
+                                    onChange={(e) =>
+                                      updateCurrentSelectedField({ color: e.target.value })
+                                    }
+                                    className="w-8 h-7 rounded border border-slate-200 cursor-pointer"
+                                  />
+                                  <div className="flex flex-1 bg-white rounded border border-slate-200 overflow-hidden text-xs">
+                                    {(['left', 'center', 'right'] as const).map((align) => (
+                                      <button
+                                        key={align}
+                                        type="button"
+                                        onClick={() => updateCurrentSelectedField({ align })}
+                                        className={`flex-1 py-1 font-medium ${
+                                          currentFieldConfig.align === align
+                                            ? 'bg-blue-600 text-white'
+                                            : 'text-slate-600 hover:bg-slate-50'
+                                        }`}
+                                      >
+                                        {align === 'left'
+                                          ? 'Sol'
+                                          : align === 'center'
+                                          ? 'Orta'
+                                          : 'Sağ'}
+                                      </button>
+                                    ))}
+                                  </div>
                                 </div>
                               </div>
                             </div>
-                          </div>
+                          ) : (
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <div className="flex justify-between text-xs mb-1">
+                                  <span className="text-slate-600 font-medium">Yazı Boyutu</span>
+                                  <span className="font-mono font-semibold">
+                                    {currentFieldConfig.fontSize}px
+                                  </span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min={11}
+                                  max={44}
+                                  step={1}
+                                  value={currentFieldConfig.fontSize}
+                                  onChange={(e) =>
+                                    updateCurrentSelectedField({
+                                      fontSize: parseInt(e.target.value, 10),
+                                    })
+                                  }
+                                  className="w-full accent-blue-600"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-xs text-slate-600 font-medium mb-1">
+                                  Yazı Rengi & Hizalama
+                                </label>
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="color"
+                                    value={currentFieldConfig.color}
+                                    onChange={(e) =>
+                                      updateCurrentSelectedField({ color: e.target.value })
+                                    }
+                                    className="w-8 h-7 rounded border border-slate-200 cursor-pointer"
+                                  />
+                                  <div className="flex flex-1 bg-white rounded border border-slate-200 overflow-hidden text-xs">
+                                    {(['left', 'center', 'right'] as const).map((align) => (
+                                      <button
+                                        key={align}
+                                        type="button"
+                                        onClick={() => updateCurrentSelectedField({ align })}
+                                        className={`flex-1 py-1 font-medium ${
+                                          currentFieldConfig.align === align
+                                            ? 'bg-blue-600 text-white'
+                                            : 'text-slate-600 hover:bg-slate-50'
+                                        }`}
+                                      >
+                                        {align === 'left'
+                                          ? 'Sol'
+                                          : align === 'center'
+                                          ? 'Orta'
+                                          : 'Sağ'}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
 
                           {/* Upper Label Prefix Toggle */}
                           {activeSelectedFieldKey !== 'studentSignatureBox' &&

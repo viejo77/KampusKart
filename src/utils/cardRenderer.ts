@@ -175,6 +175,10 @@ function drawBuiltInThemeBackground(
 
     ctx.fillStyle = template.secondaryColor;
     ctx.fillRect(0, H * 0.94, W, H * 0.06);
+
+    if (!template.schoolLogoUrl) {
+      drawSchoolEmblem(ctx, W * 0.095, H * 0.11, H * 0.078, template.primaryColor, template.accentColor);
+    }
   } else if (template.id === 'emerald-college') {
     const headerH = H * 0.23;
     ctx.fillStyle = template.primaryColor;
@@ -489,9 +493,14 @@ export async function renderStudentCardToCanvas(
   if (template.schoolLogoUrl && !template.customBackgroundUrl) {
     try {
       const logoImg = await loadImage(template.schoolLogoUrl);
-      const logoSize = isLandscape ? H * 0.16 : W * 0.16;
-      const lx = isLandscape ? W * 0.05 : W * 0.06;
-      const ly = H * 0.035;
+      const logoSize = isLandscape ? H * 0.155 : W * 0.155;
+      const lx =
+        template.id === 'modern-campus'
+          ? W * 0.045
+          : isLandscape
+          ? W * 0.05
+          : W * 0.06;
+      const ly = template.id === 'modern-campus' ? H * 0.032 : H * 0.035;
       ctx.drawImage(logoImg, lx, ly, logoSize, logoSize);
     } catch {
       // ignore logo error
@@ -615,6 +624,14 @@ export async function renderStudentCardToCanvas(
     ctx.fillStyle = field.color || '#0f172a';
 
     let lines: string[] = [];
+    // Calculate safe maximum horizontal width for schoolName so long names never overflow the card or collide with logos/titles
+    const maxSchoolWidth =
+      template.id === 'modern-campus'
+        ? W * 0.56
+        : isLandscape
+        ? W * 0.72
+        : W * 0.86;
+
     if (key === 'schoolName') {
       const explicitLines = rawValue
         .split(/\r?\n|\s*\|\s*|\s*\/\s*/)
@@ -622,9 +639,8 @@ export async function renderStudentCardToCanvas(
         .filter(Boolean);
 
       if (explicitLines.length >= 2) {
-        lines = explicitLines.slice(0, 2);
+        lines = explicitLines.slice(0, 3);
       } else {
-        const maxSchoolWidth = W * 0.72;
         if (ctx.measureText(rawValue).width > maxSchoolWidth && rawValue.includes(' ')) {
           const words = rawValue.split(/\s+/);
           const mid = Math.ceil(words.length / 2);
@@ -641,26 +657,48 @@ export async function renderStudentCardToCanvas(
       if (lines.length === 0) lines = [rawValue];
     }
 
-    const lineHeight = Math.round(field.fontSize * 1.22);
     let maxLineWidth = 80;
+    let currentLineY = valueOffsetY;
 
     lines.forEach((lineText, lineIdx) => {
-      if (key === 'schoolName' && lines.length > 1 && lineIdx === 0) {
-        const firstLineSize = Math.max(12, Math.round(field.fontSize * 0.78));
-        ctx.font = `600 ${firstLineSize}px ${fontFamily}`;
-      } else {
-        ctx.font = `${field.fontWeight || '700'} ${field.fontSize}px ${fontFamily}`;
+      let targetFontSize = field.fontSize;
+      let targetWeight = field.fontWeight || '700';
+
+      if (key === 'schoolName') {
+        if (lineIdx === 0) {
+          targetFontSize = field.fontSize;
+          targetWeight = lines.length > 1 ? '600' : field.fontWeight || '700';
+        } else {
+          targetFontSize = field.secondLineFontSize ?? field.fontSize;
+          targetWeight = field.fontWeight || '700';
+        }
       }
 
-      const lineY = valueOffsetY + lineIdx * lineHeight;
-      ctx.fillText(lineText, px, lineY);
-      const measured = ctx.measureText(lineText).width;
+      ctx.font = `${targetWeight} ${targetFontSize}px ${fontFamily}`;
+
+      // Dynamic auto-fit: if any line exceeds available width, shrink font size until it fits
+      const maxAllowedWidth =
+        key === 'schoolName'
+          ? maxSchoolWidth
+          : key === 'fullName'
+          ? W * 0.56
+          : W * 0.88;
+
+      while (ctx.measureText(lineText).width > maxAllowedWidth && targetFontSize > 10) {
+        targetFontSize -= 0.5;
+        ctx.font = `${targetWeight} ${targetFontSize}px ${fontFamily}`;
+      }
+
+      ctx.fillText(lineText, px, currentLineY, maxAllowedWidth);
+      const measured = Math.min(ctx.measureText(lineText).width, maxAllowedWidth);
       if (measured > maxLineWidth) maxLineWidth = measured;
+
+      currentLineY += Math.round(targetFontSize * 1.24);
     });
 
     if (options?.showInteractiveGuides && options.selectedField === key) {
       const textW = Math.max(maxLineWidth, 80);
-      const totalH = (valueOffsetY - py) + lines.length * lineHeight + 4;
+      const totalH = (currentLineY - py) + 4;
       let boxX = px;
       if (field.align === 'center') boxX = px - textW / 2;
       else if (field.align === 'right') boxX = px - textW;

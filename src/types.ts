@@ -42,7 +42,8 @@ export interface FieldPosition {
   y: number; // percentage 0-100 of card height
   width?: number; // percentage 0-100 (primarily for photo, signature box & barcode)
   height?: number; // percentage 0-100
-  fontSize: number; // in pt/px relative to standard 1012x638 canvas
+  fontSize: number; // in pt/px relative to standard 1012x638 canvas (for schoolName, this is 1st line font size)
+  secondLineFontSize?: number; // independent font size for the 2nd line (used in 2-line schoolName)
   fontWeight: '400' | '600' | '700';
   color: string;
   align: 'left' | 'center' | 'right';
