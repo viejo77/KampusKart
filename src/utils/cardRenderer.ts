@@ -317,6 +317,100 @@ function drawSignatureOrApprovalBox(
   ctx.restore();
 }
 
+async function renderCardWatermark(
+  ctx: CanvasRenderingContext2D,
+  template: CardTemplate,
+  W: number,
+  H: number,
+  side: 'front' | 'back',
+  targetLayer: 'background' | 'overlay'
+) {
+  const wm = template.watermark;
+  if (!wm || !wm.enabled) return;
+  if (wm.layer !== targetLayer) return;
+  if (side === 'back' && !wm.applyToBackSide) return;
+
+  const opacity = Math.max(0.02, Math.min(0.65, wm.opacity ?? 0.08));
+  const scalePct = Math.max(15, Math.min(130, wm.scale ?? 48));
+  const rotationRad = ((wm.rotation ?? -25) * Math.PI) / 180;
+
+  let logoImg: HTMLImageElement | null = null;
+  if (wm.type === 'logo' && template.schoolLogoUrl) {
+    try {
+      logoImg = await loadImage(template.schoolLogoUrl);
+    } catch {
+      logoImg = null;
+    }
+  }
+
+  ctx.save();
+  ctx.globalAlpha = opacity;
+
+  // Clip watermark strictly within the card area (and below header bar when on background layer)
+  if (targetLayer === 'background') {
+    const topClip = side === 'front' ? H * 0.22 : H * 0.16;
+    const bottomClip = H * 0.94;
+    ctx.beginPath();
+    ctx.rect(0, topClip, W, bottomClip - topClip);
+    ctx.clip();
+  }
+
+  const drawSingleWatermarkItem = (cx: number, cy: number, itemScaleFactor = 1) => {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(rotationRad);
+
+    if (wm.type === 'logo') {
+      const targetSize = Math.min(W, H) * (scalePct / 100) * itemScaleFactor;
+      if (logoImg) {
+        const aspect = logoImg.width / Math.max(1, logoImg.height);
+        const drawW = aspect >= 1 ? targetSize : targetSize * aspect;
+        const drawH = aspect >= 1 ? targetSize / aspect : targetSize;
+        ctx.drawImage(logoImg, -drawW / 2, -drawH / 2, drawW, drawH);
+      } else {
+        drawSchoolEmblem(
+          ctx,
+          0,
+          0,
+          targetSize * 0.48,
+          template.primaryColor,
+          template.accentColor
+        );
+      }
+    } else {
+      const watermarkText = (wm.text || 'ÖRNEK').trim() || 'ÖRNEK';
+      const baseFontSize = Math.max(
+        18,
+        Math.round(Math.min(W, H) * (scalePct / 100) * 0.34 * itemScaleFactor)
+      );
+      ctx.font = `800 ${baseFontSize}px "Plus Jakarta Sans", sans-serif`;
+      ctx.fillStyle = targetLayer === 'overlay' ? '#0f172a' : template.primaryColor;
+      ctx.strokeStyle = targetLayer === 'overlay' ? '#ffffff' : template.primaryColor;
+      ctx.lineWidth = Math.max(1.5, baseFontSize * 0.04);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(watermarkText, 0, 0);
+    }
+
+    ctx.restore();
+  };
+
+  if (wm.repeatedPattern) {
+    const stepX = W * 0.36;
+    const stepY = H * 0.34;
+    for (let y = -H * 0.2; y <= H * 1.2; y += stepY) {
+      for (let x = -W * 0.2; x <= W * 1.2; x += stepX) {
+        drawSingleWatermarkItem(x, y, 0.55);
+      }
+    }
+  } else {
+    const centerY = targetLayer === 'background' ? H * 0.58 : H * 0.52;
+    drawSingleWatermarkItem(W * 0.5, centerY, 1);
+  }
+
+  ctx.restore();
+}
+
 export async function renderStudentCardToCanvas(
   canvas: HTMLCanvasElement,
   student: StudentRecord,
@@ -352,6 +446,9 @@ export async function renderStudentCardToCanvas(
     } else {
       drawBuiltInBackBackground(ctx, template, W, H);
     }
+
+    // Render Background-layer Watermark on Back Side if enabled
+    await renderCardWatermark(ctx, template, W, H, 'back', 'background');
 
     const backOrder: BackFieldKey[] = [
       'backTitle',
@@ -475,6 +572,9 @@ export async function renderStudentCardToCanvas(
 
       ctx.restore();
     }
+
+    // Render Overlay-layer Watermark on Back Side if enabled
+    await renderCardWatermark(ctx, template, W, H, 'back', 'overlay');
     return;
   }
 
@@ -489,6 +589,9 @@ export async function renderStudentCardToCanvas(
   } else {
     drawBuiltInThemeBackground(ctx, template, W, H);
   }
+
+  // Render Background-layer Watermark on Front Side (behind student photo and text fields)
+  await renderCardWatermark(ctx, template, W, H, 'front', 'background');
 
   if (template.schoolLogoUrl && !template.customBackgroundUrl) {
     try {
@@ -657,23 +760,35 @@ export async function renderStudentCardToCanvas(
       if (lines.length === 0) lines = [rawValue];
     }
 
-    let maxLineWidth = 80;
+    let minBoundingX = Infinity;
+    let maxBoundingRight = -Infinity;
     let currentLineY = valueOffsetY;
 
     lines.forEach((lineText, lineIdx) => {
       let targetFontSize = field.fontSize;
       let targetWeight = field.fontWeight || '700';
+      let lineAlign: 'left' | 'center' | 'right' = field.align || 'left';
+      let linePx = px;
 
       if (key === 'schoolName') {
         if (lineIdx === 0) {
           targetFontSize = field.fontSize;
           targetWeight = lines.length > 1 ? '600' : field.fontWeight || '700';
+          lineAlign = field.align || 'left';
+          linePx = px;
         } else {
           targetFontSize = field.secondLineFontSize ?? field.fontSize;
           targetWeight = field.fontWeight || '700';
+          lineAlign = field.secondLineAlign ?? field.align ?? 'left';
+          const secondXPercent = field.secondLineX ?? field.x;
+          linePx = (secondXPercent / 100) * W;
+          if (lineIdx === 1 && field.secondLineYOffset) {
+            currentLineY += field.secondLineYOffset;
+          }
         }
       }
 
+      ctx.textAlign = lineAlign;
       ctx.font = `${targetWeight} ${targetFontSize}px ${fontFamily}`;
 
       // Dynamic auto-fit: if any line exceeds available width, shrink font size until it fits
@@ -689,24 +804,36 @@ export async function renderStudentCardToCanvas(
         ctx.font = `${targetWeight} ${targetFontSize}px ${fontFamily}`;
       }
 
-      ctx.fillText(lineText, px, currentLineY, maxAllowedWidth);
-      const measured = Math.min(ctx.measureText(lineText).width, maxAllowedWidth);
-      if (measured > maxLineWidth) maxLineWidth = measured;
+      ctx.fillText(lineText, linePx, currentLineY, maxAllowedWidth);
+      const measured = Math.max(40, Math.min(ctx.measureText(lineText).width, maxAllowedWidth));
+
+      let lineLeft = linePx;
+      if (lineAlign === 'center') lineLeft = linePx - measured / 2;
+      else if (lineAlign === 'right') lineLeft = linePx - measured;
+
+      if (lineLeft < minBoundingX) minBoundingX = lineLeft;
+      if (lineLeft + measured > maxBoundingRight) maxBoundingRight = lineLeft + measured;
 
       currentLineY += Math.round(targetFontSize * 1.24);
     });
 
     if (options?.showInteractiveGuides && options.selectedField === key) {
-      const textW = Math.max(maxLineWidth, 80);
+      const boxLeft = Number.isFinite(minBoundingX) ? minBoundingX : px - 40;
+      const boxWidth = Math.max(
+        80,
+        Number.isFinite(maxBoundingRight) && Number.isFinite(minBoundingX)
+          ? maxBoundingRight - minBoundingX
+          : 80
+      );
       const totalH = (currentLineY - py) + 4;
-      let boxX = px;
-      if (field.align === 'center') boxX = px - textW / 2;
-      else if (field.align === 'right') boxX = px - textW;
-      drawSelectionBox(ctx, boxX - 8, py - 6, textW + 16, totalH + 8);
+      drawSelectionBox(ctx, boxLeft - 8, py - 6, boxWidth + 16, totalH + 8);
     }
 
     ctx.restore();
   }
+
+  // Render Overlay-layer Watermark on Front Side (on top of card if layer === 'overlay')
+  await renderCardWatermark(ctx, template, W, H, 'front', 'overlay');
 }
 
 function drawFallbackAvatar(

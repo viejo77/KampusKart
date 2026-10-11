@@ -20,6 +20,7 @@ import {
 import {
   BUILT_IN_TEMPLATES,
   calculateValidityPeriodByClass,
+  DEFAULT_WATERMARK_CONFIG,
   INITIAL_STUDENTS,
 } from './constants';
 import {
@@ -30,6 +31,7 @@ import {
   FrontFieldKey,
   PdfExportSettings,
   StudentRecord,
+  WatermarkConfig,
 } from './types';
 import { CardCanvasPreview } from './components/CardCanvasPreview';
 import {
@@ -123,6 +125,20 @@ export default function App() {
   const updateActiveTemplate = (updater: (prev: CardTemplate) => CardTemplate) => {
     setTemplates((prev) =>
       prev.map((t) => (t.id === activeTemplate.id ? updater(t) : t))
+    );
+  };
+
+  const activeWatermark: WatermarkConfig = activeTemplate.watermark || DEFAULT_WATERMARK_CONFIG;
+
+  const updateWatermark = (patch: Partial<WatermarkConfig>) => {
+    setTemplates((prev) =>
+      prev.map((t) => ({
+        ...t,
+        watermark: {
+          ...(t.watermark || DEFAULT_WATERMARK_CONFIG),
+          ...patch,
+        },
+      }))
     );
   };
 
@@ -800,7 +816,7 @@ export default function App() {
                   value={globalSchoolLine1}
                   onChange={(e) => setGlobalSchoolLine1(e.target.value)}
                   placeholder="1. Satır (Örn: T.C. MEB / Valilik)"
-                  className="px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600 w-40"
+                  className="px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600 w-38"
                 />
                 <input
                   type="number"
@@ -821,8 +837,50 @@ export default function App() {
                     }));
                   }}
                   title="1. Satır Yazı Boyutu (px)"
-                  className="w-13 px-1.5 py-1.5 text-xs font-mono text-center border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                  className="w-12 px-1 py-1.5 text-xs font-mono text-center border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
                 />
+                <div
+                  className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200"
+                  title="1. Satır Hizalaması (Sol / Orta / Sağ)"
+                >
+                  {(['left', 'center', 'right'] as const).map((alignOpt) => {
+                    const currentAlign = activeTemplate.fields.schoolName.align || 'center';
+                    const defaultXForAlign =
+                      alignOpt === 'left'
+                        ? activeTemplate.id === 'modern-campus'
+                          ? 16.5
+                          : 18
+                        : alignOpt === 'center'
+                        ? 52
+                        : 92;
+                    return (
+                      <button
+                        key={alignOpt}
+                        type="button"
+                        onClick={() =>
+                          updateActiveTemplate((prev) => ({
+                            ...prev,
+                            fields: {
+                              ...prev.fields,
+                              schoolName: {
+                                ...prev.fields.schoolName,
+                                align: alignOpt,
+                                x: defaultXForAlign,
+                              },
+                            },
+                          }))
+                        }
+                        className={`px-1.5 py-1 text-[10px] font-bold rounded transition-colors cursor-pointer ${
+                          currentAlign === alignOpt
+                            ? 'bg-blue-600 text-white shadow-2xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        {alignOpt === 'left' ? 'Sol' : alignOpt === 'center' ? 'Orta' : 'Sağ'}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
               <div className="flex items-center gap-1">
                 <input
@@ -830,7 +888,7 @@ export default function App() {
                   value={globalSchoolLine2}
                   onChange={(e) => setGlobalSchoolLine2(e.target.value)}
                   placeholder="2. Satır (Örn: Atatürk Fen Lisesi)"
-                  className="px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600 w-40"
+                  className="px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600 w-38"
                 />
                 <input
                   type="number"
@@ -854,8 +912,53 @@ export default function App() {
                     }));
                   }}
                   title="2. Satır Yazı Boyutu (px)"
-                  className="w-13 px-1.5 py-1.5 text-xs font-mono text-center border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                  className="w-12 px-1 py-1.5 text-xs font-mono text-center border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
                 />
+                <div
+                  className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200"
+                  title="2. Satır Hizalaması (Sol / Orta / Sağ)"
+                >
+                  {(['left', 'center', 'right'] as const).map((alignOpt) => {
+                    const currentSecondAlign =
+                      activeTemplate.fields.schoolName.secondLineAlign ??
+                      activeTemplate.fields.schoolName.align ??
+                      'center';
+                    const defaultXForAlign =
+                      alignOpt === 'left'
+                        ? activeTemplate.id === 'modern-campus'
+                          ? 16.5
+                          : 18
+                        : alignOpt === 'center'
+                        ? 52
+                        : 92;
+                    return (
+                      <button
+                        key={alignOpt}
+                        type="button"
+                        onClick={() =>
+                          updateActiveTemplate((prev) => ({
+                            ...prev,
+                            fields: {
+                              ...prev.fields,
+                              schoolName: {
+                                ...prev.fields.schoolName,
+                                secondLineAlign: alignOpt,
+                                secondLineX: defaultXForAlign,
+                              },
+                            },
+                          }))
+                        }
+                        className={`px-1.5 py-1 text-[10px] font-bold rounded transition-colors cursor-pointer ${
+                          currentSecondAlign === alignOpt
+                            ? 'bg-blue-600 text-white shadow-2xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        {alignOpt === 'left' ? 'Sol' : alignOpt === 'center' ? 'Orta' : 'Sağ'}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -1513,6 +1616,41 @@ export default function App() {
                     </button>
                   </div>
 
+                  {/* Quick Watermark Toggle in Tab 1 */}
+                  <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <label className="flex items-center gap-2 font-semibold text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={activeWatermark.enabled}
+                        onChange={(e) => updateWatermark({ enabled: e.target.checked })}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-600"
+                      />
+                      <span>Filigran Ekle ({activeWatermark.type === 'logo' ? 'Okul Logosu' : `'${activeWatermark.text || 'ÖRNEK'}'`})</span>
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                      <select
+                        value={activeWatermark.type}
+                        onChange={(e) =>
+                          updateWatermark({
+                            enabled: true,
+                            type: e.target.value as 'logo' | 'text',
+                          })
+                        }
+                        className="px-2 py-1 text-[11px] font-medium bg-white border border-slate-200 rounded-md text-slate-700"
+                      >
+                        <option value="logo">Okul Logosu Filigranı</option>
+                        <option value="text">Metin (&apos;ÖRNEK&apos; vb.)</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('template-studio')}
+                        className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 whitespace-nowrap"
+                      >
+                        Filigran Ayarları
+                      </button>
+                    </div>
+                  </div>
+
                   <button
                     type="button"
                     disabled={isExportingPdf || students.length === 0}
@@ -1682,17 +1820,34 @@ export default function App() {
                         }));
                       } else {
                         const ff = field as FrontFieldKey;
-                        updateActiveTemplate((prev) => ({
-                          ...prev,
-                          fields: {
-                            ...prev.fields,
-                            [ff]: {
-                              ...prev.fields[ff],
-                              x: newX,
-                              y: newY,
+                        updateActiveTemplate((prev) => {
+                          const existingField = prev.fields[ff];
+                          const deltaX = newX - existingField.x;
+                          const nextSecondLineX =
+                            ff === 'schoolName'
+                              ? Math.max(
+                                  1,
+                                  Math.min(
+                                    96,
+                                    Math.round(
+                                      ((existingField.secondLineX ?? existingField.x) + deltaX) * 2
+                                    ) / 2
+                                  )
+                                )
+                              : existingField.secondLineX;
+                          return {
+                            ...prev,
+                            fields: {
+                              ...prev.fields,
+                              [ff]: {
+                                ...existingField,
+                                x: newX,
+                                y: newY,
+                                ...(ff === 'schoolName' ? { secondLineX: nextSecondLineX } : {}),
+                              },
                             },
-                          },
-                        }));
+                          };
+                        });
                       }
                     }}
                     className={
@@ -1913,44 +2068,144 @@ export default function App() {
                       </div>
                     )}
 
-                    {/* X and Y Position Sliders */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <div className="flex justify-between text-xs mb-1">
-                          <span className="text-slate-600 font-medium">Yatay Konum (X)</span>
-                          <span className="font-mono font-semibold">%{currentFieldConfig.x}</span>
-                        </div>
-                        <input
-                          type="range"
-                          min={0}
-                          max={95}
-                          step={0.5}
-                          value={currentFieldConfig.x}
-                          onChange={(e) =>
-                            updateCurrentSelectedField({ x: parseFloat(e.target.value) })
-                          }
-                          className="w-full accent-blue-600"
-                        />
-                      </div>
+                     {/* X and Y Position Sliders */}
+                    {activeSelectedFieldKey === 'schoolName' ? (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <div className="flex justify-between text-xs mb-1">
+                              <span className="text-slate-700 font-semibold">
+                                1. Satır Yatay Konum (X)
+                              </span>
+                              <span className="font-mono font-semibold text-blue-700">
+                                %{currentFieldConfig.x}
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min={0}
+                              max={96}
+                              step={0.5}
+                              value={currentFieldConfig.x}
+                              onChange={(e) =>
+                                updateCurrentSelectedField({ x: parseFloat(e.target.value) })
+                              }
+                              className="w-full accent-blue-600"
+                            />
+                          </div>
 
-                      <div>
-                        <div className="flex justify-between text-xs mb-1">
-                          <span className="text-slate-600 font-medium">Dikey Konum (Y)</span>
-                          <span className="font-mono font-semibold">%{currentFieldConfig.y}</span>
+                          <div>
+                            <div className="flex justify-between text-xs mb-1">
+                              <span className="text-slate-700 font-semibold">
+                                2. Satır Yatay Konum (X)
+                              </span>
+                              <span className="font-mono font-semibold text-blue-700">
+                                %{currentFieldConfig.secondLineX ?? currentFieldConfig.x}
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min={0}
+                              max={96}
+                              step={0.5}
+                              value={currentFieldConfig.secondLineX ?? currentFieldConfig.x}
+                              onChange={(e) =>
+                                updateCurrentSelectedField({
+                                  secondLineX: parseFloat(e.target.value),
+                                })
+                              }
+                              className="w-full accent-blue-600"
+                            />
+                          </div>
                         </div>
-                        <input
-                          type="range"
-                          min={0}
-                          max={95}
-                          step={0.5}
-                          value={currentFieldConfig.y}
-                          onChange={(e) =>
-                            updateCurrentSelectedField({ y: parseFloat(e.target.value) })
-                          }
-                          className="w-full accent-blue-600"
-                        />
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <div className="flex justify-between text-xs mb-1">
+                              <span className="text-slate-600 font-medium">
+                                Dikey Konum (Üst Y)
+                              </span>
+                              <span className="font-mono font-semibold">
+                                %{currentFieldConfig.y}
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min={0}
+                              max={90}
+                              step={0.5}
+                              value={currentFieldConfig.y}
+                              onChange={(e) =>
+                                updateCurrentSelectedField({ y: parseFloat(e.target.value) })
+                              }
+                              className="w-full accent-blue-600"
+                            />
+                          </div>
+
+                          <div>
+                            <div className="flex justify-between text-xs mb-1">
+                              <span className="text-slate-600 font-medium">
+                                Satır Arası Boşluk
+                              </span>
+                              <span className="font-mono font-semibold">
+                                {currentFieldConfig.secondLineYOffset ?? 0}px
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min={-8}
+                              max={20}
+                              step={1}
+                              value={currentFieldConfig.secondLineYOffset ?? 0}
+                              onChange={(e) =>
+                                updateCurrentSelectedField({
+                                  secondLineYOffset: parseInt(e.target.value, 10),
+                                })
+                              }
+                              className="w-full accent-blue-600"
+                            />
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-slate-600 font-medium">Yatay Konum (X)</span>
+                            <span className="font-mono font-semibold">%{currentFieldConfig.x}</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={0}
+                            max={95}
+                            step={0.5}
+                            value={currentFieldConfig.x}
+                            onChange={(e) =>
+                              updateCurrentSelectedField({ x: parseFloat(e.target.value) })
+                            }
+                            className="w-full accent-blue-600"
+                          />
+                        </div>
+
+                        <div>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-slate-600 font-medium">Dikey Konum (Y)</span>
+                            <span className="font-mono font-semibold">%{currentFieldConfig.y}</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={0}
+                            max={95}
+                            step={0.5}
+                            value={currentFieldConfig.y}
+                            onChange={(e) =>
+                              updateCurrentSelectedField({ y: parseFloat(e.target.value) })
+                            }
+                            className="w-full accent-blue-600"
+                          />
+                        </div>
+                      </div>
+                    )}
 
                     {/* Width & Height Controls for Photo, Barcode, Signature Box, Principal Approval Box */}
                     {(activeSelectedFieldKey === 'photo' ||
@@ -2012,6 +2267,7 @@ export default function App() {
                         <div className="space-y-3 pt-2 border-t border-slate-200">
                           {activeSelectedFieldKey === 'schoolName' ? (
                             <div className="space-y-3">
+                              {/* Font Sizes for Line 1 and Line 2 */}
                               <div className="grid grid-cols-2 gap-4">
                                 <div>
                                   <div className="flex justify-between text-xs mb-1">
@@ -2067,40 +2323,106 @@ export default function App() {
                                 </div>
                               </div>
 
-                              <div>
-                                <label className="block text-xs text-slate-600 font-medium mb-1">
-                                  Yazı Rengi & Hizalama
-                                </label>
-                                <div className="flex items-center gap-2">
-                                  <input
-                                    type="color"
-                                    value={currentFieldConfig.color}
-                                    onChange={(e) =>
-                                      updateCurrentSelectedField({ color: e.target.value })
-                                    }
-                                    className="w-8 h-7 rounded border border-slate-200 cursor-pointer"
-                                  />
-                                  <div className="flex flex-1 bg-white rounded border border-slate-200 overflow-hidden text-xs">
-                                    {(['left', 'center', 'right'] as const).map((align) => (
-                                      <button
-                                        key={align}
-                                        type="button"
-                                        onClick={() => updateCurrentSelectedField({ align })}
-                                        className={`flex-1 py-1 font-medium ${
-                                          currentFieldConfig.align === align
-                                            ? 'bg-blue-600 text-white'
-                                            : 'text-slate-600 hover:bg-slate-50'
-                                        }`}
-                                      >
-                                        {align === 'left'
-                                          ? 'Sol'
+                              {/* Independent Alignment for Line 1 and Line 2 */}
+                              <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                  <label className="block text-xs text-slate-700 font-semibold mb-1">
+                                    1. Satır Hizalaması
+                                  </label>
+                                  <div className="flex bg-white rounded-lg border border-slate-200 overflow-hidden text-xs">
+                                    {(['left', 'center', 'right'] as const).map((align) => {
+                                      const defaultXForAlign =
+                                        align === 'left'
+                                          ? activeTemplate.id === 'modern-campus'
+                                            ? 16.5
+                                            : 18
                                           : align === 'center'
-                                          ? 'Orta'
-                                          : 'Sağ'}
-                                      </button>
-                                    ))}
+                                          ? 52
+                                          : 92;
+                                      return (
+                                        <button
+                                          key={align}
+                                          type="button"
+                                          onClick={() =>
+                                            updateCurrentSelectedField({
+                                              align,
+                                              x: defaultXForAlign,
+                                            })
+                                          }
+                                          className={`flex-1 py-1.5 font-semibold transition-colors cursor-pointer ${
+                                            currentFieldConfig.align === align
+                                              ? 'bg-blue-600 text-white'
+                                              : 'text-slate-600 hover:bg-slate-50'
+                                          }`}
+                                        >
+                                          {align === 'left'
+                                            ? 'Sol'
+                                            : align === 'center'
+                                            ? 'Orta'
+                                            : 'Sağ'}
+                                        </button>
+                                      );
+                                    })}
                                   </div>
                                 </div>
+
+                                <div>
+                                  <label className="block text-xs text-slate-700 font-semibold mb-1">
+                                    2. Satır Hizalaması
+                                  </label>
+                                  <div className="flex bg-white rounded-lg border border-slate-200 overflow-hidden text-xs">
+                                    {(['left', 'center', 'right'] as const).map((align) => {
+                                      const currentSecondAlign =
+                                        currentFieldConfig.secondLineAlign ??
+                                        currentFieldConfig.align;
+                                      const defaultXForAlign =
+                                        align === 'left'
+                                          ? activeTemplate.id === 'modern-campus'
+                                            ? 16.5
+                                            : 18
+                                          : align === 'center'
+                                          ? 52
+                                          : 92;
+                                      return (
+                                        <button
+                                          key={align}
+                                          type="button"
+                                          onClick={() =>
+                                            updateCurrentSelectedField({
+                                              secondLineAlign: align,
+                                              secondLineX: defaultXForAlign,
+                                            })
+                                          }
+                                          className={`flex-1 py-1.5 font-semibold transition-colors cursor-pointer ${
+                                            currentSecondAlign === align
+                                              ? 'bg-blue-600 text-white'
+                                              : 'text-slate-600 hover:bg-slate-50'
+                                          }`}
+                                        >
+                                          {align === 'left'
+                                            ? 'Sol'
+                                            : align === 'center'
+                                            ? 'Orta'
+                                            : 'Sağ'}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-between pt-1">
+                                <label className="text-xs text-slate-600 font-medium">
+                                  Okul İsmi Yazı Rengi
+                                </label>
+                                <input
+                                  type="color"
+                                  value={currentFieldConfig.color}
+                                  onChange={(e) =>
+                                    updateCurrentSelectedField({ color: e.target.value })
+                                  }
+                                  className="w-10 h-7 rounded border border-slate-200 cursor-pointer"
+                                />
                               </div>
                             </div>
                           ) : (
@@ -2230,6 +2552,255 @@ export default function App() {
                   </button>
                 </div>
               </div>
+
+              {/* WATERMARK SETTINGS PANEL (FİLİGRAN AYARLARI) */}
+              <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                  <div>
+                    <span className="text-xs font-semibold text-blue-700">
+                      Güvenlik & Taslak Filigranı
+                    </span>
+                    <h3 className="text-base font-bold text-slate-900">
+                      Filigran Ayarları (Okul Logosu veya &apos;Örnek&apos; Yazısı)
+                    </h3>
+                  </div>
+                  <label className="flex items-center gap-2 px-3 py-1.5 bg-blue-50/70 border border-blue-200 rounded-lg text-xs font-bold text-blue-900 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={activeWatermark.enabled}
+                      onChange={(e) => updateWatermark({ enabled: e.target.checked })}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-600"
+                    />
+                    <span>Filigranı Aktif Et</span>
+                  </label>
+                </div>
+
+                <div className="space-y-4">
+                  {/* Watermark Type & Layer */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                        Filigran Türü
+                      </label>
+                      <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+                        <button
+                          type="button"
+                          onClick={() => updateWatermark({ enabled: true, type: 'logo' })}
+                          className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                            activeWatermark.type === 'logo'
+                              ? 'bg-white text-slate-900 shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Okul Logosu / Amblem
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateWatermark({ enabled: true, type: 'text' })}
+                          className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                            activeWatermark.type === 'text'
+                              ? 'bg-white text-slate-900 shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Özel Metin (Örnek vb.)
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                        Filigran Konumu (Katman)
+                      </label>
+                      <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+                        <button
+                          type="button"
+                          onClick={() => updateWatermark({ enabled: true, layer: 'background' })}
+                          className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                            activeWatermark.layer === 'background'
+                              ? 'bg-white text-slate-900 shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                          title="Fotoğraf ve öğrenci bilgilerinin altında, şablon zemininin üstünde yer alır"
+                        >
+                          Arka Plana (Zemin)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateWatermark({ enabled: true, layer: 'overlay' })}
+                          className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                            activeWatermark.layer === 'overlay'
+                              ? 'bg-white text-slate-900 shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                          title="Tüm kart tasarımının ve fotoğrafın üzerinde yarı şeffaf güvenlik katmanı olarak yer alır"
+                        >
+                          Kartın Üstüne (Üst Katman)
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Text Input & Presets if type === 'text', or Logo Upload shortcut if type === 'logo' */}
+                  {activeWatermark.type === 'text' ? (
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold text-slate-700">
+                          Filigran Metni
+                        </label>
+                        <div className="flex items-center gap-1">
+                          {['ÖRNEK', 'TASLAK', 'GEÇERSİZDİR', 'RESMİ BELGE'].map((preset) => (
+                            <button
+                              key={preset}
+                              type="button"
+                              onClick={() =>
+                                updateWatermark({ enabled: true, text: preset })
+                              }
+                              className="px-2 py-0.5 text-[10px] font-semibold bg-white border border-slate-200 hover:border-blue-500 text-slate-700 rounded transition-colors cursor-pointer"
+                            >
+                              {preset}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <input
+                        type="text"
+                        value={activeWatermark.text}
+                        onChange={(e) =>
+                          updateWatermark({ enabled: true, text: e.target.value })
+                        }
+                        placeholder="Örn: ÖRNEK KİMLİK KARTI veya Okul Adı"
+                        className="w-full px-2.5 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                      />
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between gap-3">
+                      <div className="text-xs text-slate-600">
+                        <span className="font-semibold text-slate-800 block">
+                          {activeTemplate.schoolLogoUrl
+                            ? 'Yüklü Okul Logosu Filigran Olarak Kullanılıyor'
+                            : 'Varsayılan Kurumsal Okul Amblemi Kullanılıyor'}
+                        </span>
+                        <span>
+                          Kendi okul logonuzu yüklediğinizde otomatik olarak şeffaf filigrana dönüşür.
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => schoolLogoInputRef.current?.click()}
+                        className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg whitespace-nowrap cursor-pointer"
+                      >
+                        {activeTemplate.schoolLogoUrl ? 'Logoyu Değiştir' : '+ Logo Yükle'}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Opacity, Scale, Rotation Sliders */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
+                    <div>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-slate-600 font-medium">Şeffaflık (Opaklık)</span>
+                        <span className="font-mono font-semibold text-blue-700">
+                          %{Math.round((activeWatermark.opacity ?? 0.08) * 100)}
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={3}
+                        max={45}
+                        step={1}
+                        value={Math.round((activeWatermark.opacity ?? 0.08) * 100)}
+                        onChange={(e) =>
+                          updateWatermark({
+                            enabled: true,
+                            opacity: parseInt(e.target.value, 10) / 100,
+                          })
+                        }
+                        className="w-full accent-blue-600"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-slate-600 font-medium">Filigran Boyutu</span>
+                        <span className="font-mono font-semibold text-blue-700">
+                          %{activeWatermark.scale}
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={20}
+                        max={110}
+                        step={2}
+                        value={activeWatermark.scale}
+                        onChange={(e) =>
+                          updateWatermark({
+                            enabled: true,
+                            scale: parseInt(e.target.value, 10),
+                          })
+                        }
+                        className="w-full accent-blue-600"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-slate-600 font-medium">Döndürme Açısı</span>
+                        <span className="font-mono font-semibold text-blue-700">
+                          {activeWatermark.rotation}°
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={-60}
+                        max={60}
+                        step={5}
+                        value={activeWatermark.rotation}
+                        onChange={(e) =>
+                          updateWatermark({
+                            enabled: true,
+                            rotation: parseInt(e.target.value, 10),
+                          })
+                        }
+                        className="w-full accent-blue-600"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Pattern & Back Side Checkboxes */}
+                  <div className="pt-2 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+                    <label className="flex items-center gap-2 font-medium text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={activeWatermark.repeatedPattern}
+                        onChange={(e) =>
+                          updateWatermark({
+                            enabled: true,
+                            repeatedPattern: e.target.checked,
+                          })
+                        }
+                        className="rounded border-slate-300 text-blue-600"
+                      />
+                      <span>Çoklu Çapraz Desen (Tüm Karta Döşe)</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 font-medium text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={activeWatermark.applyToBackSide}
+                        onChange={(e) =>
+                          updateWatermark({
+                            enabled: true,
+                            applyToBackSide: e.target.checked,
+                          })
+                        }
+                        className="rounded border-slate-300 text-blue-600"
+                      />
+                      <span>Arka Yüze de Filigran Uygula</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -2258,6 +2829,19 @@ export default function App() {
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
+                {/* Optional Watermark Quick Toggle inside Batch Preview */}
+                <label className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={activeWatermark.enabled}
+                    onChange={(e) => updateWatermark({ enabled: e.target.checked })}
+                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-600"
+                  />
+                  <span>
+                    Filigran ({activeWatermark.type === 'logo' ? 'Okul Logosu' : activeWatermark.text || 'ÖRNEK'})
+                  </span>
+                </label>
+
                 {/* Optional Back Side Toggle right inside Batch Preview */}
                 <label className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 cursor-pointer">
                   <input

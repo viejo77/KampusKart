@@ -44,6 +44,9 @@ export interface FieldPosition {
   height?: number; // percentage 0-100
   fontSize: number; // in pt/px relative to standard 1012x638 canvas (for schoolName, this is 1st line font size)
   secondLineFontSize?: number; // independent font size for the 2nd line (used in 2-line schoolName)
+  secondLineAlign?: 'left' | 'center' | 'right'; // independent horizontal alignment for the 2nd line of schoolName
+  secondLineX?: number; // optional independent X position (0-100%) for the 2nd line of schoolName
+  secondLineYOffset?: number; // optional vertical spacing adjustment in px between 1st and 2nd line
   fontWeight: '400' | '600' | '700';
   color: string;
   align: 'left' | 'center' | 'right';
@@ -60,6 +63,18 @@ export type BuiltInThemeId =
   | 'modern-campus'
   | 'emerald-college'
   | 'vertical-lanyard';
+
+export interface WatermarkConfig {
+  enabled: boolean;
+  type: 'text' | 'logo';
+  text: string; // e.g., "ÖRNEK", "TASLAK", or School Name
+  layer: 'background' | 'overlay'; // 'background' (behind fields/photo) or 'overlay' (on top of card)
+  opacity: number; // 0.03 to 0.50
+  scale: number; // 20 to 120 (%)
+  rotation: number; // -60 to 60 degrees
+  repeatedPattern: boolean; // single centered watermark vs tiled diagonal pattern
+  applyToBackSide: boolean; // whether to also draw watermark on back side
+}
 
 export interface CardTemplate {
   id: BuiltInThemeId;
@@ -78,6 +93,7 @@ export interface CardTemplate {
   defaultAcademicYear: string;
   cardTitleText: string;
   enableBackSide: boolean; // Optional back side toggle
+  watermark?: WatermarkConfig;
   fields: Record<FrontFieldKey, FieldPosition>;
   backFields: Record<BackFieldKey, FieldPosition>;
 }

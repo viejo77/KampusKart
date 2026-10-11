@@ -1,4 +1,16 @@
-import { BackFieldKey, CardTemplate, FieldPosition, StudentRecord } from './types';
+import { BackFieldKey, CardTemplate, FieldPosition, StudentRecord, WatermarkConfig } from './types';
+
+export const DEFAULT_WATERMARK_CONFIG: WatermarkConfig = {
+  enabled: false,
+  type: 'logo',
+  text: 'ÖRNEK KİMLİK KARTI',
+  layer: 'background',
+  opacity: 0.08,
+  scale: 48,
+  rotation: -25,
+  repeatedPattern: false,
+  applyToBackSide: true,
+};
 
 /**
  * Calculates the validity period (Dönem / Geçerlilik Süresi) based on student's grade level:
@@ -437,6 +449,7 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
     defaultAcademicYear: '2026-2027',
     cardTitleText: 'ÖĞRENCİ KİMLİK KARTI',
     enableBackSide: false,
+    watermark: { ...DEFAULT_WATERMARK_CONFIG },
     fields: {
       schoolName: {
         id: 'schoolName',
@@ -446,6 +459,9 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
         y: 3.5,
         fontSize: 18,
         secondLineFontSize: 22,
+        secondLineAlign: 'center',
+        secondLineX: 54,
+        secondLineYOffset: 0,
         fontWeight: '700',
         color: '#ffffff',
         align: 'center',
@@ -560,6 +576,7 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
     defaultAcademicYear: '2026-2027',
     cardTitleText: 'ÖĞRENCİ KARTI',
     enableBackSide: false,
+    watermark: { ...DEFAULT_WATERMARK_CONFIG },
     fields: {
       schoolName: {
         id: 'schoolName',
@@ -569,6 +586,9 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
         y: 4.5,
         fontSize: 18,
         secondLineFontSize: 22,
+        secondLineAlign: 'left',
+        secondLineX: 16.5,
+        secondLineYOffset: 0,
         fontWeight: '700',
         color: '#ffffff',
         align: 'left',
@@ -683,6 +703,7 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
     defaultAcademicYear: '2026-2027',
     cardTitleText: 'ÖĞRENCİ KİMLİK BELGESİ',
     enableBackSide: false,
+    watermark: { ...DEFAULT_WATERMARK_CONFIG },
     fields: {
       schoolName: {
         id: 'schoolName',
@@ -692,6 +713,9 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
         y: 3.5,
         fontSize: 18,
         secondLineFontSize: 22,
+        secondLineAlign: 'center',
+        secondLineX: 52,
+        secondLineYOffset: 0,
         fontWeight: '700',
         color: '#ffffff',
         align: 'center',
@@ -806,6 +830,7 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
     defaultAcademicYear: '2026-2027',
     cardTitleText: 'ÖĞRENCİ KİMLİK KARTI',
     enableBackSide: false,
+    watermark: { ...DEFAULT_WATERMARK_CONFIG },
     fields: {
       schoolName: {
         id: 'schoolName',
@@ -815,6 +840,9 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
         y: 6,
         fontSize: 16,
         secondLineFontSize: 20,
+        secondLineAlign: 'center',
+        secondLineX: 50,
+        secondLineYOffset: 0,
         fontWeight: '700',
         color: '#ffffff',
         align: 'center',
