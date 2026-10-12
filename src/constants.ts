@@ -13,7 +13,9 @@ export const DEFAULT_WATERMARK_CONFIG: WatermarkConfig = {
 };
 
 /**
- * Calculates the validity period (Dönem / Geçerlilik Süresi) based on student's grade level:
+ * Calculates the validity period (Dönem / Geçerlilik Süresi) based on student's grade level
+ * even when className includes prefixes/suffixes such as "AMP 9-A", "ATP 10/B", "Hazırlık", "Edebiyat 11-C":
+ * - Hazırlık -> 5 Yıl (e.g., 2026-2031 (5 Yıl))
  * - 9. Sınıf  -> 4 Yıl (e.g., 2026-2030 (4 Yıl))
  * - 10. Sınıf -> 3 Yıl (e.g., 2026-2029 (3 Yıl))
  * - 11. Sınıf -> 2 Yıl (e.g., 2026-2028 (2 Yıl))
@@ -26,15 +28,24 @@ export function calculateValidityPeriodByClass(
   const yearMatch = (baseStartYearInput || '2026').match(/\b(20\d{2})\b/);
   const startYear = yearMatch ? parseInt(yearMatch[1], 10) : 2026;
 
-  const gradeMatch = (className || '').trim().match(/^(\d{1,2})/);
+  const rawClass = (className || '').trim();
+  // Match 10, 11, 12, or 9 anywhere in the class string as a standalone number token
+  // (e.g., "Amp 9- a", "ATP 10/B", "11-Edebiyat", "AMP-12A", "9. Sınıf")
+  const gradeMatch = rawClass.match(/(?:^|[^\d])(10|11|12|9)(?!\d)/);
   const grade = gradeMatch ? parseInt(gradeMatch[1], 10) : null;
 
   let durationYears = 1;
-  if (grade === 9) durationYears = 4;
-  else if (grade === 10) durationYears = 3;
-  else if (grade === 11) durationYears = 2;
-  else if (grade === 12) durationYears = 1;
-  else {
+  if (grade === 9) {
+    durationYears = 4;
+  } else if (grade === 10) {
+    durationYears = 3;
+  } else if (grade === 11) {
+    durationYears = 2;
+  } else if (grade === 12) {
+    durationYears = 1;
+  } else if (/haz[ıi]rl[ıi]k/i.test(rawClass)) {
+    durationYears = 5;
+  } else {
     return `${startYear}-${startYear + 1}`;
   }
 
@@ -402,8 +413,8 @@ export const INITIAL_STUDENTS: StudentRecord[] = [
     studentNumber: '1104',
     fullName: 'Mert Çelik',
     schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen Lisesi',
-    className: '11-B',
-    academicYear: calculateValidityPeriodByClass('11-B', '2026'),
+    className: 'ATP 11-B',
+    academicYear: calculateValidityPeriodByClass('ATP 11-B', '2026'),
     bloodType: 'AB Rh(+)',
     emergencyPhone: '0505 444 55 66',
     photoFileName: '1104.jpg',
@@ -414,8 +425,8 @@ export const INITIAL_STUDENTS: StudentRecord[] = [
     studentNumber: '1129',
     fullName: 'Defne Şahin',
     schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen Lisesi',
-    className: '9-C',
-    academicYear: calculateValidityPeriodByClass('9-C', '2026'),
+    className: 'AMP 9-A',
+    academicYear: calculateValidityPeriodByClass('AMP 9-A', '2026'),
     bloodType: 'A Rh(-)',
     emergencyPhone: '0535 555 66 77',
     photoFileName: '1129.jpg',
