@@ -596,15 +596,56 @@ export async function renderStudentCardToCanvas(
   if (template.schoolLogoUrl && !template.customBackgroundUrl) {
     try {
       const logoImg = await loadImage(template.schoolLogoUrl);
-      const logoSize = isLandscape ? H * 0.155 : W * 0.155;
-      const lx =
-        template.id === 'modern-campus'
-          ? W * 0.045
-          : isLandscape
-          ? W * 0.05
-          : W * 0.06;
-      const ly = template.id === 'modern-campus' ? H * 0.032 : H * 0.035;
-      ctx.drawImage(logoImg, lx, ly, logoSize, logoSize);
+      const isModern = template.id === 'modern-campus';
+      const scaleMultiplier = (template.schoolLogoScale || 100) / 100;
+      const baseLogoSize = isLandscape ? (isModern ? H * 0.165 : H * 0.155) : W * 0.16;
+      const logoSize = baseLogoSize * scaleMultiplier;
+      const lx = isModern
+        ? W * 0.042
+        : isLandscape
+        ? W * 0.048
+        : W * 0.055;
+      const ly = isModern ? H * 0.028 : H * 0.035;
+
+      const cx = lx + logoSize / 2;
+      const cy = ly + logoSize / 2;
+      const useBadge = template.schoolLogoStyle !== 'transparent'; // Defaults to high-contrast badge for optimal PNG legibility
+
+      if (useBadge) {
+        const radius = logoSize * 0.52;
+        // Crisp white contrast badge backplate with soft shadow and gold/accent rim
+        ctx.save();
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.22)';
+        ctx.shadowBlur = 8;
+        ctx.shadowOffsetY = 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = template.accentColor || '#d97706';
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Draw logo preserving natural aspect ratio inside badge with maximum crispness
+      ctx.save();
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      const aspect = logoImg.width / Math.max(1, logoImg.height);
+      const maxInnerW = useBadge ? logoSize * 0.84 : logoSize;
+      const maxInnerH = useBadge ? logoSize * 0.84 : logoSize;
+      let drawW = maxInnerW;
+      let drawH = maxInnerH;
+      if (aspect >= 1) {
+        drawH = maxInnerW / aspect;
+      } else {
+        drawW = maxInnerH * aspect;
+      }
+
+      ctx.drawImage(logoImg, cx - drawW / 2, cy - drawH / 2, drawW, drawH);
+      ctx.restore();
     } catch {
       // ignore logo error
     }
@@ -700,7 +741,7 @@ export async function renderStudentCardToCanvas(
     let rawValue = '';
     if (key === 'fullName') rawValue = student.fullName || 'Adı Soyadı';
     else if (key === 'studentNumber') rawValue = student.studentNumber || '0000';
-    else if (key === 'className') rawValue = student.className || '-';
+    else if (key === 'className') rawValue = student.fieldOfStudy || student.className || '-';
     else if (key === 'schoolName') rawValue = student.schoolName || template.defaultSchoolName;
     else if (key === 'academicYear') rawValue = student.academicYear || template.defaultAcademicYear;
     else if (key === 'cardTitle') rawValue = template.cardTitleText || 'ÖĞRENCİ KİMLİK KARTI';

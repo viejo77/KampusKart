@@ -53,6 +53,84 @@ export function calculateValidityPeriodByClass(
   return `${startYear}-${endYear} (${durationYears} Yıl)`;
 }
 
+/**
+ * Extracts school prefix (AMP / ATP) from class name and attaches to student number,
+ * and infers department / field of study (Alanı) from class name or raw department text.
+ */
+export function inferDepartmentAndStudentNumber(
+  rawNo: string,
+  rawClass: string,
+  rawDepartment?: string
+): { formattedStudentNumber: string; fieldOfStudy: string } {
+  const cleanNo = (rawNo || '').trim();
+  const cleanClass = (rawClass || '').trim();
+  const cleanDept = (rawDepartment || '').trim();
+
+  // 1. Check if class name has AMP / ATP prefix (e.g., "AMP 9-A", "ATP-10B", "AMP/11-C")
+  let prefix = '';
+  const prefixMatch = cleanClass.match(/\b(AMP|ATP)\b/i);
+  if (prefixMatch) {
+    prefix = prefixMatch[1].toUpperCase();
+  }
+
+  // Prepend prefix to student number if not already present
+  let formattedStudentNumber = cleanNo;
+  if (prefix && cleanNo) {
+    if (!cleanNo.toUpperCase().startsWith(prefix)) {
+      formattedStudentNumber = `${prefix}-${cleanNo}`;
+    }
+  }
+
+  // 2. Determine Field of Study (Alanı)
+  if (cleanDept) {
+    return { formattedStudentNumber, fieldOfStudy: cleanDept };
+  }
+
+  // Infer from class name keywords if not explicitly specified
+  const lowerClass = cleanClass.toLowerCase();
+  let fieldOfStudy = 'Genel Lise Programı';
+
+  if (lowerClass.includes('bilişim') || lowerClass.includes('bilisim') || lowerClass.includes('yazılım') || lowerClass.includes('bt')) {
+    fieldOfStudy = 'Bilişim Teknolojileri Alanı';
+  } else if (lowerClass.includes('elektrik') || lowerClass.includes('elektronik') || lowerClass.includes('elk')) {
+    fieldOfStudy = 'Elektrik-Elektronik Teknolojisi';
+  } else if (lowerClass.includes('makine') || lowerClass.includes('makina') || lowerClass.includes('cnc')) {
+    fieldOfStudy = 'Makine ve Tasarım Teknolojisi';
+  } else if (lowerClass.includes('motor') || lowerClass.includes('otomotiv')) {
+    fieldOfStudy = 'Motorlu Araçlar Teknolojisi';
+  } else if (lowerClass.includes('inşaat') || lowerClass.includes('insaat') || lowerClass.includes('yapı')) {
+    fieldOfStudy = 'İnşaat Teknolojisi Alanı';
+  } else if (lowerClass.includes('kimya') || lowerClass.includes('laboratuvar')) {
+    fieldOfStudy = 'Kimya Teknolojisi Alanı';
+  } else if (lowerClass.includes('sağlık') || lowerClass.includes('saglik') || lowerClass.includes('hemşire')) {
+    fieldOfStudy = 'Sağlık Hizmetleri Alanı';
+  } else if (lowerClass.includes('muhasebe') || lowerClass.includes('finans')) {
+    fieldOfStudy = 'Muhasebe ve Finansman';
+  } else if (lowerClass.includes('adalet')) {
+    fieldOfStudy = 'Adalet Alanı';
+  } else if (lowerClass.includes('çocuk') || lowerClass.includes('cocuk') || lowerClass.includes('gelişim')) {
+    fieldOfStudy = 'Çocuk Gelişimi ve Eğitimi';
+  } else if (lowerClass.includes('yiyecek') || lowerClass.includes('gastronomi') || lowerClass.includes('mutfak')) {
+    fieldOfStudy = 'Yiyecek İçecek Hizmetleri';
+  } else if (lowerClass.includes('grafik') || lowerClass.includes('tasarım') || lowerClass.includes('matbaa')) {
+    fieldOfStudy = 'Grafik ve Fotoğraf Alanı';
+  } else if (lowerClass.includes('fen') || lowerClass.includes('sayısal') || lowerClass.includes('sayisal')) {
+    fieldOfStudy = 'Fen Bilimleri (Sayısal)';
+  } else if (lowerClass.includes('edebiyat') || lowerClass.includes('türkçe') || lowerClass.includes('sözel') || lowerClass.includes('sozel')) {
+    fieldOfStudy = 'Türk Dili ve Edebiyatı (Sözel)';
+  } else if (lowerClass.includes('eşit') || lowerClass.includes('tm')) {
+    fieldOfStudy = 'Eşit Ağırlık Alanı';
+  } else if (lowerClass.includes('yabancı') || lowerClass.includes('dil') || lowerClass.includes('ingilizce')) {
+    fieldOfStudy = 'Yabancı Diller Alanı';
+  } else if (prefix === 'AMP') {
+    fieldOfStudy = 'Anadolu Meslek Programı (AMP)';
+  } else if (prefix === 'ATP') {
+    fieldOfStudy = 'Anadolu Teknik Programı (ATP)';
+  }
+
+  return { formattedStudentNumber, fieldOfStudy };
+}
+
 // Generate realistic, high-resolution SVG portrait data URLs so demo students have crisp, zero-broken-image portraits out of the box
 function createStudentPortraitDataUrl(
   initials: string,
@@ -374,11 +452,12 @@ export function createDefaultBackFields(
 export const INITIAL_STUDENTS: StudentRecord[] = [
   {
     id: 'std-1',
-    studentNumber: '1042',
+    studentNumber: 'ATP-1042',
     fullName: 'Elif Yılmaz',
-    schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen Lisesi',
-    className: '10-A',
-    academicYear: calculateValidityPeriodByClass('10-A', '2026'),
+    schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen ve Teknik Lisesi',
+    className: 'ATP 10-A',
+    fieldOfStudy: 'Bilişim Teknolojileri Alanı',
+    academicYear: calculateValidityPeriodByClass('ATP 10-A', '2026'),
     bloodType: 'A Rh(+)',
     emergencyPhone: '0532 111 22 33',
     photoFileName: '1042.jpg',
@@ -386,11 +465,12 @@ export const INITIAL_STUDENTS: StudentRecord[] = [
   },
   {
     id: 'std-2',
-    studentNumber: '1045',
+    studentNumber: 'ATP-1045',
     fullName: 'Kerem Demir',
-    schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen Lisesi',
-    className: '10-A',
-    academicYear: calculateValidityPeriodByClass('10-A', '2026'),
+    schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen ve Teknik Lisesi',
+    className: 'ATP 10-B',
+    fieldOfStudy: 'Elektrik-Elektronik Teknolojisi',
+    academicYear: calculateValidityPeriodByClass('ATP 10-B', '2026'),
     bloodType: '0 Rh(+)',
     emergencyPhone: '0533 222 33 44',
     photoFileName: '1045.jpg',
@@ -398,11 +478,12 @@ export const INITIAL_STUDENTS: StudentRecord[] = [
   },
   {
     id: 'std-3',
-    studentNumber: '1088',
+    studentNumber: 'AMP-1088',
     fullName: 'Zeynep Kaya',
-    schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen Lisesi',
-    className: '11-B',
-    academicYear: calculateValidityPeriodByClass('11-B', '2026'),
+    schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen ve Teknik Lisesi',
+    className: 'AMP 11-A',
+    fieldOfStudy: 'Makine ve Tasarım Teknolojisi',
+    academicYear: calculateValidityPeriodByClass('AMP 11-A', '2026'),
     bloodType: 'B Rh(+)',
     emergencyPhone: '0542 333 44 55',
     photoFileName: '1088.jpg',
@@ -410,10 +491,11 @@ export const INITIAL_STUDENTS: StudentRecord[] = [
   },
   {
     id: 'std-4',
-    studentNumber: '1104',
+    studentNumber: 'ATP-1104',
     fullName: 'Mert Çelik',
-    schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen Lisesi',
+    schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen ve Teknik Lisesi',
     className: 'ATP 11-B',
+    fieldOfStudy: 'Bilişim Teknolojileri (Yazılım)',
     academicYear: calculateValidityPeriodByClass('ATP 11-B', '2026'),
     bloodType: 'AB Rh(+)',
     emergencyPhone: '0505 444 55 66',
@@ -422,10 +504,11 @@ export const INITIAL_STUDENTS: StudentRecord[] = [
   },
   {
     id: 'std-5',
-    studentNumber: '1129',
+    studentNumber: 'AMP-1129',
     fullName: 'Defne Şahin',
-    schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen Lisesi',
+    schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen ve Teknik Lisesi',
     className: 'AMP 9-A',
+    fieldOfStudy: 'Grafik ve Tasarım Alanı',
     academicYear: calculateValidityPeriodByClass('AMP 9-A', '2026'),
     bloodType: 'A Rh(-)',
     emergencyPhone: '0535 555 66 77',
@@ -434,11 +517,12 @@ export const INITIAL_STUDENTS: StudentRecord[] = [
   },
   {
     id: 'std-6',
-    studentNumber: '1156',
+    studentNumber: 'AMP-1156',
     fullName: 'Caner Aydın',
-    schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen Lisesi',
-    className: '12-A',
-    academicYear: calculateValidityPeriodByClass('12-A', '2026'),
+    schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen ve Teknik Lisesi',
+    className: 'AMP 12-A',
+    fieldOfStudy: 'Motorlu Araçlar Teknolojisi',
+    academicYear: calculateValidityPeriodByClass('AMP 12-A', '2026'),
     bloodType: '0 Rh(-)',
     emergencyPhone: '0544 666 77 88',
     photoFileName: '1156.jpg',
@@ -534,16 +618,16 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
       },
       className: {
         id: 'className',
-        label: 'Sınıfı / Şubesi',
+        label: 'Alanı / Bölümü',
         visible: true,
         x: 68,
         y: 52,
-        fontSize: 24,
+        fontSize: 22,
         fontWeight: '700',
         color: '#0f294a',
         align: 'left',
         showPrefix: true,
-        prefixText: 'Sınıfı',
+        prefixText: 'Alanı',
       },
       academicYear: {
         id: 'academicYear',
@@ -661,16 +745,16 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
       },
       className: {
         id: 'className',
-        label: 'Sınıfı / Şubesi',
+        label: 'Alanı / Bölümü',
         visible: true,
         x: 38,
         y: 53,
-        fontSize: 25,
+        fontSize: 22,
         fontWeight: '700',
         color: '#0f172a',
         align: 'left',
         showPrefix: true,
-        prefixText: 'Sınıf / Şube',
+        prefixText: 'Alanı',
       },
       academicYear: {
         id: 'academicYear',
@@ -788,16 +872,16 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
       },
       className: {
         id: 'className',
-        label: 'Sınıfı / Şubesi',
+        label: 'Alanı / Bölümü',
         visible: true,
         x: 68,
         y: 52,
-        fontSize: 24,
+        fontSize: 22,
         fontWeight: '700',
         color: '#0f172a',
         align: 'left',
         showPrefix: true,
-        prefixText: 'Sınıfı',
+        prefixText: 'Alanı',
       },
       academicYear: {
         id: 'academicYear',
@@ -914,16 +998,16 @@ export const BUILT_IN_TEMPLATES: CardTemplate[] = [
       },
       className: {
         id: 'className',
-        label: 'Sınıfı / Şubesi',
+        label: 'Alanı / Bölümü',
         visible: true,
         x: 72,
         y: 73,
-        fontSize: 22,
+        fontSize: 20,
         fontWeight: '700',
         color: '#0f172a',
         align: 'center',
         showPrefix: true,
-        prefixText: 'Sınıf',
+        prefixText: 'Alanı',
       },
       academicYear: {
         id: 'academicYear',

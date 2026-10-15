@@ -1,10 +1,11 @@
 export interface StudentRecord {
   id: string;
-  studentNumber: string; // Okul Numarası (also used to match photo filename e.g., 1042.jpg)
+  studentNumber: string; // Okul Numarası (with optional AMP/ATP prefix e.g., AMP-1042)
   fullName: string; // Adı Soyadı
   schoolName: string; // Okul İsmi (supports 2 lines)
-  className: string; // Sınıfı (e.g., 10-A)
-  academicYear?: string; // Öğretim Yılı (e.g., 2026-2027)
+  className: string; // Sınıfı (e.g., AMP 9-A, ATP 10-B)
+  fieldOfStudy?: string; // Alanı / Bölümü (e.g., Bilişim Teknolojileri, Elektrik-Elektronik vb.)
+  academicYear?: string; // Öğretim Yılı (e.g., 2026-2030 (4 Yıl))
   bloodType?: string; // Kan Grubu (optional, shown on back side)
   emergencyPhone?: string; // Veli / Acil Durum Tel (optional, shown on back side)
   photoDataUrl?: string; // Matched or default photo data URL
@@ -88,6 +89,8 @@ export interface CardTemplate {
   customBackgroundUrl?: string;
   customBackBackgroundUrl?: string;
   schoolLogoUrl?: string;
+  schoolLogoStyle?: 'badge' | 'transparent'; // Badge backing for high-contrast crisp PNG logo rendering
+  schoolLogoScale?: number; // 70 to 140 (%) scale multiplier
   principalSignatureUrl?: string; // Optional uploaded signature/stamp image for back side
   defaultSchoolName: string;
   defaultAcademicYear: string;

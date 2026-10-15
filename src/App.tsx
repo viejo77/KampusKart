@@ -16,11 +16,15 @@ import {
   RotateCcw,
   FileCheck,
   FlipHorizontal,
+  Shield,
+  UserCheck,
+  IdCard,
 } from 'lucide-react';
 import {
   BUILT_IN_TEMPLATES,
   calculateValidityPeriodByClass,
   DEFAULT_WATERMARK_CONFIG,
+  inferDepartmentAndStudentNumber,
   INITIAL_STUDENTS,
 } from './constants';
 import {
@@ -40,8 +44,9 @@ import {
   normalizePhotoMatchKey,
   parseSpreadsheetFile,
 } from './utils/pdfExporter';
+import { generateStaffCards, generateVisitorCards } from './utils/visitorCards';
 
-type ActiveTab = 'data-matching' | 'template-studio' | 'batch-preview';
+type ActiveTab = 'data-matching' | 'template-studio' | 'visitor-staff' | 'batch-preview';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('data-matching');
@@ -104,9 +109,23 @@ export default function App() {
   const [newStudent, setNewStudent] = useState({
     studentNumber: '',
     fullName: '',
-    className: '9-A',
-    schoolName: 'Atatürk Fen Lisesi',
+    className: 'AMP 9-A',
+    fieldOfStudy: '',
+    schoolName: 'Atatürk Fen ve Teknik Lisesi',
   });
+
+  // Visitor & Staff Card Generation State
+  const [visitorMode, setVisitorMode] = useState<'visitor' | 'staff'>('visitor');
+  const [visitorSide, setVisitorSide] = useState<'front' | 'back'>('front');
+  const [visitorCardCount, setVisitorCardCount] = useState<number>(10);
+  const [visitorCardPrefix, setVisitorCardPrefix] = useState<string>('ZYR');
+  const [visitorCardTitle, setVisitorCardTitle] = useState<string>('ZİYARETÇİ KARTI');
+  const [visitorCardSubtitle, setVisitorCardSubtitle] = useState<string>('Günübirlik Giriş / Güvenlik Kontrolü');
+
+  const [staffCardCount, setStaffCardCount] = useState<number>(5);
+  const [staffCardPrefix, setStaffCardPrefix] = useState<string>('GRV');
+  const [staffCardTitle, setStaffCardTitle] = useState<string>('GÖREVLİ KARTI');
+  const [staffCardSubtitle, setStaffCardSubtitle] = useState<string>('Sınav & Etkinlik Görevlisi');
 
   // File input refs
   const excelInputRef = useRef<HTMLInputElement | null>(null);
@@ -415,11 +434,20 @@ export default function App() {
   // Apply Global School Name & Grade-Based Validity Period (Dönem) to all rows
   const handleApplyGlobalSchoolToAll = () => {
     setStudents((prev) =>
-      prev.map((s) => ({
-        ...s,
-        schoolName: combinedGlobalSchoolName,
-        academicYear: calculateValidityPeriodByClass(s.className, globalAcademicYear),
-      }))
+      prev.map((s) => {
+        const { formattedStudentNumber, fieldOfStudy } = inferDepartmentAndStudentNumber(
+          s.studentNumber,
+          s.className,
+          s.fieldOfStudy
+        );
+        return {
+          ...s,
+          studentNumber: formattedStudentNumber,
+          fieldOfStudy: s.fieldOfStudy || fieldOfStudy,
+          schoolName: combinedGlobalSchoolName,
+          academicYear: calculateValidityPeriodByClass(s.className, globalAcademicYear),
+        };
+      })
     );
     updateActiveTemplate((prev) => ({
       ...prev,
@@ -428,7 +456,7 @@ export default function App() {
     }));
     setStatusBanner({
       type: 'info',
-      message: `Tüm öğrencilerin okul adı ve sınıf seviyesine göre geçerlilik dönemleri (9. Sınıf: 4 Yıl, 10. Sınıf: 3 Yıl, 11. Sınıf: 2 Yıl, 12. Sınıf: 1 Yıl) otomatik güncellendi.`,
+      message: `Tüm öğrencilerin okul adı, AMP/ATP önadları, alan bilgileri ve sınıfa göre geçerlilik dönemleri otomatik güncellendi.`,
     });
   };
 
@@ -438,14 +466,23 @@ export default function App() {
     if (!newStudent.studentNumber.trim() || !newStudent.fullName.trim()) return;
 
     const cleanNo = newStudent.studentNumber.trim();
-    const cleanClass = newStudent.className.trim() || '9-A';
-    const matchedPhoto = photoPool.get(normalizePhotoMatchKey(cleanNo));
+    const cleanClass = newStudent.className.trim() || 'AMP 9-A';
+    const { formattedStudentNumber, fieldOfStudy } = inferDepartmentAndStudentNumber(
+      cleanNo,
+      cleanClass,
+      newStudent.fieldOfStudy
+    );
+
+    const matchedPhoto =
+      photoPool.get(normalizePhotoMatchKey(cleanNo)) ||
+      photoPool.get(normalizePhotoMatchKey(formattedStudentNumber));
 
     const record: StudentRecord = {
       id: `std-${Date.now()}`,
-      studentNumber: cleanNo,
+      studentNumber: formattedStudentNumber,
       fullName: newStudent.fullName.trim(),
       className: cleanClass,
+      fieldOfStudy,
       schoolName: newStudent.schoolName.trim() || combinedGlobalSchoolName,
       academicYear: calculateValidityPeriodByClass(cleanClass, globalAcademicYear),
       bloodType: 'A Rh(+)',
@@ -459,6 +496,7 @@ export default function App() {
       studentNumber: '',
       fullName: '',
       className: newStudent.className,
+      fieldOfStudy: '',
       schoolName: combinedGlobalSchoolName,
     });
   };
@@ -482,6 +520,16 @@ export default function App() {
         } else if (field === 'className') {
           // Automatically recalculate validity period when student's class grade changes (9->4yr, 10->3yr, 11->2yr, 12->1yr)
           updated.academicYear = calculateValidityPeriodByClass(value, globalAcademicYear);
+          // Also infer AMP/ATP prefix and field of study if not customized
+          const inferred = inferDepartmentAndStudentNumber(
+            updated.studentNumber,
+            value,
+            updated.fieldOfStudy
+          );
+          updated.studentNumber = inferred.formattedStudentNumber;
+          if (!updated.fieldOfStudy || updated.fieldOfStudy === 'Genel Lise Programı') {
+            updated.fieldOfStudy = inferred.fieldOfStudy;
+          }
         }
         return updated;
       })
@@ -490,6 +538,88 @@ export default function App() {
 
   const handleDeleteStudent = (id: string) => {
     setStudents((prev) => prev.filter((s) => s.id !== id));
+  };
+
+  // Dynamically generate visitor & staff card lists using active template settings
+  const currentVisitorList = useMemo(() => {
+    return generateVisitorCards(visitorCardCount, {
+      schoolName: combinedGlobalSchoolName,
+      prefix: visitorCardPrefix,
+      title: visitorCardTitle,
+      subtitle: visitorCardSubtitle,
+    });
+  }, [
+    visitorCardCount,
+    combinedGlobalSchoolName,
+    visitorCardPrefix,
+    visitorCardTitle,
+    visitorCardSubtitle,
+  ]);
+
+  const currentStaffList = useMemo(() => {
+    return generateStaffCards(staffCardCount, {
+      schoolName: combinedGlobalSchoolName,
+      prefix: staffCardPrefix,
+      title: staffCardTitle,
+      subtitle: staffCardSubtitle,
+      validity: globalAcademicYear,
+    });
+  }, [
+    staffCardCount,
+    combinedGlobalSchoolName,
+    staffCardPrefix,
+    staffCardTitle,
+    staffCardSubtitle,
+    globalAcademicYear,
+  ]);
+
+  // Export Visitor or Staff cards directly to PDF
+  const handleExportVisitorOrStaffPdf = async (type: 'visitor' | 'staff') => {
+    const list = type === 'visitor' ? currentVisitorList : currentStaffList;
+    if (list.length === 0 || isExportingPdf) return;
+
+    setIsExportingPdf(true);
+    setExportProgress({ current: 0, total: list.length });
+
+    try {
+      await generateBatchStudentCardsPdf(
+        list,
+        activeTemplate,
+        {
+          ...pdfSettings,
+          includeBackSide: activeTemplate.enableBackSide,
+        },
+        (current, total) => {
+          setExportProgress({ current, total });
+        }
+      );
+      setStatusBanner({
+        type: 'success',
+        message: `${list.length} adet ${
+          type === 'visitor' ? 'Ziyaretçi' : 'Görevli'
+        } Kartı PDF olarak başarıyla indirildi.`,
+      });
+    } catch {
+      setStatusBanner({
+        type: 'warning',
+        message: 'PDF oluşturulurken bir hata meydana geldi.',
+      });
+    } finally {
+      setIsExportingPdf(false);
+      setExportProgress(null);
+    }
+  };
+
+  // Append generated Visitor or Staff cards to main student cards list
+  const handleAppendVisitorCardsToStudents = (type: 'visitor' | 'staff') => {
+    const list = type === 'visitor' ? currentVisitorList : currentStaffList;
+    setStudents((prev) => [...prev, ...list]);
+    setStatusBanner({
+      type: 'success',
+      message: `${list.length} adet ${
+        type === 'visitor' ? 'Ziyaretçi' : 'Görevli'
+      } Kartı ana listeye aktarıldı. Toplu Önizleme sekmesinden tüm kartları görebilirsiniz.`,
+    });
   };
 
   // Trigger Batch PDF Export
@@ -667,6 +797,17 @@ export default function App() {
           </button>
           <button
             type="button"
+            onClick={() => setActiveTab('visitor-staff')}
+            className={`py-1 transition-colors whitespace-nowrap border-b-2 ${
+              activeTab === 'visitor-staff'
+                ? 'border-blue-600 text-slate-900 font-semibold'
+                : 'border-transparent hover:text-slate-900'
+            }`}
+          >
+            3. Ziyaretçi & Görevli Kartları
+          </button>
+          <button
+            type="button"
             onClick={() => setActiveTab('batch-preview')}
             className={`py-1 transition-colors whitespace-nowrap border-b-2 ${
               activeTab === 'batch-preview'
@@ -674,7 +815,7 @@ export default function App() {
                 : 'border-transparent hover:text-slate-900'
             }`}
           >
-            3. Toplu Önizleme & A4 Baskı ({students.length})
+            4. Toplu Önizleme & A4 Baskı ({students.length})
           </button>
         </nav>
 
@@ -703,39 +844,50 @@ export default function App() {
       </header>
 
       {/* Mobile Navigation Bar */}
-      <div className="flex md:hidden items-center justify-around bg-white border-b border-slate-200 px-2 py-2">
+      <div className="flex md:hidden items-center justify-around bg-white border-b border-slate-200 px-2 py-2 overflow-x-auto">
         <button
           type="button"
           onClick={() => setActiveTab('data-matching')}
-          className={`px-3 py-1.5 text-xs font-semibold rounded-md whitespace-nowrap ${
+          className={`px-2.5 py-1.5 text-xs font-semibold rounded-md whitespace-nowrap ${
             activeTab === 'data-matching'
               ? 'bg-blue-50 text-blue-700'
               : 'text-slate-600'
           }`}
         >
-          1. Veri & Fotoğraf
+          1. Veri
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('template-studio')}
-          className={`px-3 py-1.5 text-xs font-semibold rounded-md whitespace-nowrap ${
+          className={`px-2.5 py-1.5 text-xs font-semibold rounded-md whitespace-nowrap ${
             activeTab === 'template-studio'
               ? 'bg-blue-50 text-blue-700'
               : 'text-slate-600'
           }`}
         >
-          2. Şablon (Ön/Arka)
+          2. Şablon
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('visitor-staff')}
+          className={`px-2.5 py-1.5 text-xs font-semibold rounded-md whitespace-nowrap ${
+            activeTab === 'visitor-staff'
+              ? 'bg-blue-50 text-blue-700'
+              : 'text-slate-600'
+          }`}
+        >
+          3. Ziyaretçi/Görevli
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('batch-preview')}
-          className={`px-3 py-1.5 text-xs font-semibold rounded-md whitespace-nowrap ${
+          className={`px-2.5 py-1.5 text-xs font-semibold rounded-md whitespace-nowrap ${
             activeTab === 'batch-preview'
               ? 'bg-blue-50 text-blue-700'
               : 'text-slate-600'
           }`}
         >
-          3. Toplu Baskı ({students.length})
+          4. Baskı ({students.length})
         </button>
       </div>
 
@@ -1178,7 +1330,17 @@ export default function App() {
                       setNewStudent((p) => ({ ...p, fullName: e.target.value }))
                     }
                     placeholder="Adı Soyadı"
-                    className="flex-1 min-w-[140px] px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-md focus:outline-none focus:border-blue-600"
+                    className="flex-1 min-w-[130px] px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-md focus:outline-none focus:border-blue-600"
+                  />
+                  <input
+                    type="text"
+                    value={newStudent.fieldOfStudy}
+                    onChange={(e) =>
+                      setNewStudent((p) => ({ ...p, fieldOfStudy: e.target.value }))
+                    }
+                    placeholder="Alanı (Örn: Bilişim)"
+                    title="Kart üzerinde basılacak alan / bölüm"
+                    className="w-36 px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-md focus:outline-none focus:border-blue-600"
                   />
                   <input
                     type="text"
@@ -1186,7 +1348,8 @@ export default function App() {
                     onChange={(e) =>
                       setNewStudent((p) => ({ ...p, className: e.target.value }))
                     }
-                    placeholder="Sınıf (10-A)"
+                    placeholder="Sınıf (AMP 9-A)"
+                    title="Dönem ve alan belirleme referansıdır, karta basılmaz"
                     className="w-24 px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-md focus:outline-none focus:border-blue-600"
                   />
                   <button
@@ -1204,9 +1367,10 @@ export default function App() {
                     <thead className="bg-slate-50 sticky top-0 z-10 border-b border-slate-200 text-[11px] font-semibold text-slate-500">
                       <tr>
                         <th className="py-2.5 pl-4 pr-2 w-14">Foto</th>
-                        <th className="py-2.5 px-2 w-20">Okul No</th>
+                        <th className="py-2.5 px-2 w-24">Okul No</th>
                         <th className="py-2.5 px-2">Adı Soyadı</th>
-                        <th className="py-2.5 px-2 w-18">Sınıfı</th>
+                        <th className="py-2.5 px-2 w-36" title="Kart üzerine basılan alan/bölüm bilgisi (Sınıf yerine basılır)">Alanı / Bölümü (Kartta Yazar)</th>
+                        <th className="py-2.5 px-2 w-20" title="Arka planda dönem ve alan belirlemede referans olarak kullanılır">Sınıfı</th>
                         <th className="py-2.5 px-2 w-36">Dönem (Geçerlilik)</th>
                         <th className="py-2.5 px-2">Okul İsmi (2 Satır)</th>
                         <th className="py-2.5 pl-2 pr-4 text-right w-24">Durum / İşlem</th>
@@ -1215,7 +1379,7 @@ export default function App() {
                     <tbody className="divide-y divide-slate-100 text-xs">
                       {filteredStudents.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="py-12 text-center text-slate-500">
+                          <td colSpan={8} className="py-12 text-center text-slate-500">
                             Kriterlere uygun öğrenci kaydı bulunamadı. Yukarıdan Excel yükleyebilir veya yeni öğrenci ekleyebilirsiniz.
                           </td>
                         </tr>
@@ -1296,7 +1460,25 @@ export default function App() {
                                 />
                               </td>
 
-                              {/* Class Name */}
+                               {/* Field of Study (Alanı) - Prints on card instead of class name */}
+                              <td className="py-2 px-2">
+                                <input
+                                  type="text"
+                                  value={student.fieldOfStudy || ''}
+                                  onChange={(e) =>
+                                    handleUpdateStudentField(
+                                      student.id,
+                                      'fieldOfStudy',
+                                      e.target.value
+                                    )
+                                  }
+                                  placeholder="Örn: Bilişim Alanı"
+                                  title="Kart üzerinde basılan alan/bölüm bilgisi"
+                                  className="w-36 px-1.5 py-1 font-semibold text-blue-900 bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-600 focus:bg-white rounded focus:outline-none"
+                                />
+                              </td>
+
+                              {/* Class Name (Reference) */}
                               <td className="py-2 px-2">
                                 <input
                                   type="text"
@@ -1308,7 +1490,8 @@ export default function App() {
                                       e.target.value
                                     )
                                   }
-                                  className="w-16 px-1.5 py-1 font-medium text-slate-700 bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-600 focus:bg-white rounded focus:outline-none"
+                                  title="Dönem ve alan belirleme referansı (Karta basılmaz)"
+                                  className="w-18 px-1.5 py-1 text-slate-600 bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-600 focus:bg-white rounded focus:outline-none"
                                 />
                               </td>
 
@@ -1905,9 +2088,9 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                      Kurumsal Renkler & Logo
+                  <div className="space-y-2">
+                    <label className="block text-xs font-semibold text-slate-700">
+                      Kurumsal Renkler & Okul Logosu (PNG)
                     </label>
                     <div className="flex items-center gap-2">
                       <input
@@ -1919,6 +2102,7 @@ export default function App() {
                             primaryColor: e.target.value,
                           }))
                         }
+                        title="Ana Tema Rengi"
                         className="w-9 h-8 rounded border border-slate-200 cursor-pointer"
                       />
                       <input
@@ -1930,6 +2114,7 @@ export default function App() {
                             accentColor: e.target.value,
                           }))
                         }
+                        title="Vurgu Rengi"
                         className="w-9 h-8 rounded border border-slate-200 cursor-pointer"
                       />
                       <button
@@ -1937,9 +2122,98 @@ export default function App() {
                         onClick={() => schoolLogoInputRef.current?.click()}
                         className="flex-1 px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg whitespace-nowrap cursor-pointer"
                       >
-                        {activeTemplate.schoolLogoUrl ? 'Logoyu Değiştir' : '+ Okul Logosu'}
+                        {activeTemplate.schoolLogoUrl ? 'Logoyu Değiştir' : '+ Okul Logosu (PNG)'}
                       </button>
+                      {activeTemplate.schoolLogoUrl && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateActiveTemplate((p) => ({
+                              ...p,
+                              schoolLogoUrl: undefined,
+                            }))
+                          }
+                          className="p-1.5 text-xs text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                          title="Logoyu Kaldır"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
+
+                    {/* Logo Clarity / Contrast Badge Controls */}
+                    {activeTemplate.schoolLogoUrl && (
+                      <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-lg space-y-2.5 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-blue-900">
+                            Logo Rozet Görünümü:
+                          </span>
+                          <div className="flex items-center bg-white rounded border border-blue-200 p-0.5">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateActiveTemplate((p) => ({
+                                  ...p,
+                                  schoolLogoStyle: 'badge',
+                                }))
+                              }
+                              className={`px-2 py-0.5 rounded font-semibold transition-colors cursor-pointer ${
+                                (activeTemplate.schoolLogoStyle ?? 'badge') === 'badge'
+                                  ? 'bg-blue-600 text-white'
+                                  : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                              title="Şeffaf PNG amblemlerin koyu başlık zemininde kaybolmaması için arkasına beyaz dairesel kontrast rozet ekler"
+                            >
+                              Beyaz Rozet (Net)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateActiveTemplate((p) => ({
+                                  ...p,
+                                  schoolLogoStyle: 'transparent',
+                                }))
+                              }
+                              className={`px-2 py-0.5 rounded font-semibold transition-colors cursor-pointer ${
+                                activeTemplate.schoolLogoStyle === 'transparent'
+                                  ? 'bg-blue-600 text-white'
+                                  : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                              title="Rozetsiz doğrudan şeffaf baskı"
+                            >
+                              Şeffaf / Düz
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-700 font-medium">Logo Büyüklüğü:</span>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="range"
+                              min={75}
+                              max={140}
+                              step={5}
+                              value={activeTemplate.schoolLogoScale || 100}
+                              onChange={(e) =>
+                                updateActiveTemplate((p) => ({
+                                  ...p,
+                                  schoolLogoScale: parseInt(e.target.value, 10),
+                                }))
+                              }
+                              className="w-24 accent-blue-600"
+                            />
+                            <span className="font-mono text-blue-700 font-bold w-10 text-right">
+                              %{activeTemplate.schoolLogoScale || 100}
+                            </span>
+                          </div>
+                        </div>
+
+                        <p className="text-[10px] text-blue-800 leading-tight">
+                          İpucu: Yüklediğiniz PNG okul logosu şeffaf zeminli ise koyu alanlarda net okunabilmesi için &apos;Beyaz Rozet&apos; modu tavsiye edilir.
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   <div>
@@ -2805,7 +3079,384 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 3: TOPLU ÖNİZLEME & A4 BASKI MERKEZİ */}
+        {/* TAB 3: ZİYARETÇİ VE GÖREVLİ KARTLARI ÜRETİCİ */}
+        {activeTab === 'visitor-staff' && (
+          <div className="space-y-6">
+            {/* Header Banner */}
+            <div className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <span className="text-xs font-semibold text-blue-700">
+                  Hızlı Özel Kart Üreticisi
+                </span>
+                <h2 className="text-lg font-bold text-slate-900">
+                  Ziyaretçi ve Görevli Kimlik Kartları
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Mevcut okul şablonunuzun (kurumsal renkler, logo, 2 satırlı okul adı ve filigran) aynısını kullanarak istediğiniz sayıda Ziyaretçi ve Görevli Kartı üretin.
+                </p>
+              </div>
+
+              {/* Mode Toggle: Ziyaretçi vs Görevli */}
+              <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => setVisitorMode('visitor')}
+                  className={`px-4 py-2 text-xs font-bold rounded-md transition-colors cursor-pointer flex items-center gap-1.5 ${
+                    visitorMode === 'visitor'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-700 hover:text-slate-900'
+                  }`}
+                >
+                  <Shield className="w-3.5 h-3.5" />
+                  Ziyaretçi Kartları ({visitorCardCount} Adet)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVisitorMode('staff')}
+                  className={`px-4 py-2 text-xs font-bold rounded-md transition-colors cursor-pointer flex items-center gap-1.5 ${
+                    visitorMode === 'staff'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-700 hover:text-slate-900'
+                  }`}
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  Görevli Kartları ({staffCardCount} Adet)
+                </button>
+              </div>
+            </div>
+
+            {/* Split Grid: Left Form Controls & Quick Generators | Right Live Canvas Preview */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Left 6 Columns: Generator Settings & Customization */}
+              <div className="lg:col-span-6 space-y-5">
+                <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900">
+                        {visitorMode === 'visitor'
+                          ? 'Ziyaretçi Kartı Yapılandırması'
+                          : 'Görevli Kartı Yapılandırması'}
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        {visitorMode === 'visitor'
+                          ? 'Nizamiye ve güvenlik girişlerinde kullanılacak misafir kartları'
+                          : 'Sınav, etkinlik, nöbetçi öğretmen ve kurum personeli kartları'}
+                      </p>
+                    </div>
+                    <span className="px-2.5 py-1 text-xs font-mono font-bold rounded bg-slate-100 text-slate-700">
+                      Toplam: {visitorMode === 'visitor' ? visitorCardCount : staffCardCount} Kart
+                    </span>
+                  </div>
+
+                  {/* Card Quantity Control (Sayısını kendisi belirleyebilir!) */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      Üretilecek Kart Sayısı (Adet):
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="number"
+                        min={1}
+                        max={200}
+                        value={visitorMode === 'visitor' ? visitorCardCount : staffCardCount}
+                        onChange={(e) => {
+                          const val = Math.max(1, Math.min(200, parseInt(e.target.value, 10) || 1));
+                          if (visitorMode === 'visitor') setVisitorCardCount(val);
+                          else setStaffCardCount(val);
+                        }}
+                        className="w-28 px-3 py-2 text-sm font-bold text-center border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600 bg-white"
+                      />
+                      {/* Quick Count Presets */}
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {[5, 10, 15, 20, 30, 50].map((preset) => (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() => {
+                              if (visitorMode === 'visitor') setVisitorCardCount(preset);
+                              else setStaffCardCount(preset);
+                            }}
+                            className={`px-2.5 py-1 text-xs font-semibold rounded-md border transition-colors cursor-pointer ${
+                              (visitorMode === 'visitor' ? visitorCardCount : staffCardCount) === preset
+                                ? 'bg-slate-900 text-white border-slate-900'
+                                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                            }`}
+                          >
+                            {preset} Adet
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Card Prefix & Numbering */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Numara Ön-Kodu (Prefix):
+                      </label>
+                      <input
+                        type="text"
+                        value={visitorMode === 'visitor' ? visitorCardPrefix : staffCardPrefix}
+                        onChange={(e) => {
+                          const val = e.target.value.toUpperCase();
+                          if (visitorMode === 'visitor') setVisitorCardPrefix(val);
+                          else setStaffCardPrefix(val);
+                        }}
+                        placeholder={visitorMode === 'visitor' ? 'ZYR' : 'GRV'}
+                        className="w-full px-3 py-1.5 text-xs font-mono font-bold bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                      />
+                      <span className="text-[10px] text-slate-400 mt-0.5 block">
+                        Örn: {visitorMode === 'visitor' ? visitorCardPrefix : staffCardPrefix}-001, {visitorMode === 'visitor' ? visitorCardPrefix : staffCardPrefix}-002
+                      </span>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Kart Başlığı:
+                      </label>
+                      <input
+                        type="text"
+                        value={visitorMode === 'visitor' ? visitorCardTitle : staffCardTitle}
+                        onChange={(e) => {
+                          if (visitorMode === 'visitor') setVisitorCardTitle(e.target.value);
+                          else setStaffCardTitle(e.target.value);
+                        }}
+                        placeholder={visitorMode === 'visitor' ? 'ZİYARETÇİ KARTI' : 'GÖREVLİ KARTI'}
+                        className="w-full px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Field / Department (Alanı) & Subtitle */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Alanı / Görevi (Kartın &apos;Alanı&apos; Bölümünde Yazar):
+                    </label>
+                    <input
+                      type="text"
+                      value={visitorMode === 'visitor' ? visitorCardSubtitle : staffCardSubtitle}
+                      onChange={(e) => {
+                        if (visitorMode === 'visitor') setVisitorCardSubtitle(e.target.value);
+                        else setStaffCardSubtitle(e.target.value);
+                      }}
+                      placeholder="Örn: Sınav Salon Başkanı / Güvenlik Kontrolü"
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                    />
+                    {/* Quick Suggestions */}
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                      {(visitorMode === 'visitor'
+                        ? [
+                            'Günübirlik Giriş / Güvenlik Kontrolü',
+                            'Misafir Girişi',
+                            'Veli Görüşme Kartı',
+                            'Yetkili Ziyaretçi',
+                          ]
+                        : [
+                            'Sınav & Etkinlik Görevlisi',
+                            'Sınav Salon Başkanı',
+                            'Gözetmen / Nöbetçi Öğretmen',
+                            'Kurum Personeli',
+                          ]
+                      ).map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => {
+                            if (visitorMode === 'visitor') setVisitorCardSubtitle(preset);
+                            else setStaffCardSubtitle(preset);
+                          }}
+                          className="px-2 py-0.5 text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors cursor-pointer"
+                        >
+                          {preset}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* School Name & Template info notice */}
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-800">
+                        Kullanılan Okul Şablonu:
+                      </span>
+                      <span className="font-medium text-blue-700">
+                        {activeTemplate.name} ({activeTemplate.orientation === 'landscape' ? 'Yatay' : 'Dikey'})
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-600">Okul İsmi:</span>
+                      <span className="text-slate-800 font-medium truncate max-w-[240px]">
+                        {globalSchoolLine1} {globalSchoolLine2}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-600">Arka Yüz (İki Yönlü):</span>
+                      <span className="font-medium">
+                        {activeTemplate.enableBackSide ? 'Aktif (Ön + Arka Birlikte Basılır)' : 'Sadece Ön Yüz'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Primary Action Buttons */}
+                  <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                    <button
+                      type="button"
+                      disabled={isExportingPdf}
+                      onClick={() => handleExportVisitorOrStaffPdf(visitorMode)}
+                      className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold text-white rounded-xl shadow-xs transition-colors cursor-pointer ${
+                        visitorMode === 'visitor'
+                          ? 'bg-blue-600 hover:bg-blue-700'
+                          : 'bg-emerald-600 hover:bg-emerald-700'
+                      }`}
+                    >
+                      <Download className="w-4 h-4" />
+                      {visitorMode === 'visitor'
+                        ? `Ziyaretçi Kartlarını PDF İndir (${visitorCardCount} Adet)`
+                        : `Görevli Kartlarını PDF İndir (${staffCardCount} Adet)`}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleAppendVisitorCardsToStudents(visitorMode)}
+                      className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer whitespace-nowrap"
+                      title="Bu kartları ana öğrenci listesine aktararak tüm kartlarla birlikte tek A4 çıktısında basabilirsiniz"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Ana Listeye Ekle ({visitorMode === 'visitor' ? visitorCardCount : staffCardCount} Kart)
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right 6 Columns: Live Interactive Canvas Preview */}
+              <div className="lg:col-span-6 space-y-4">
+                <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-semibold text-blue-700">
+                        Canlı Önizleme
+                      </span>
+                      <h3 className="text-sm font-bold text-slate-900">
+                        {visitorMode === 'visitor' ? 'Örnek Ziyaretçi Kartı' : 'Örnek Görevli Kartı'} (1. Kart)
+                      </h3>
+                    </div>
+
+                    {/* Front / Back Toggle */}
+                    <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+                      <button
+                        type="button"
+                        onClick={() => setVisitorSide('front')}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                          visitorSide === 'front'
+                            ? 'bg-white text-slate-900 shadow-xs'
+                            : 'text-slate-600'
+                        }`}
+                      >
+                        Ön Yüz
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setVisitorSide('back')}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                          visitorSide === 'back'
+                            ? 'bg-white text-slate-900 shadow-xs'
+                            : 'text-slate-600'
+                        }`}
+                      >
+                        Arka Yüz
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-center bg-slate-100 border border-slate-200 rounded-xl p-5">
+                    {visitorMode === 'visitor' ? (
+                      <CardCanvasPreview
+                        student={currentVisitorList[0] || previewStudent}
+                        template={activeTemplate}
+                        side={visitorSide}
+                        className="w-full max-w-md shadow-sm"
+                      />
+                    ) : (
+                      <CardCanvasPreview
+                        student={currentStaffList[0] || previewStudent}
+                        template={activeTemplate}
+                        side={visitorSide}
+                        className="w-full max-w-md shadow-sm"
+                      />
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
+                    <span>
+                      {visitorMode === 'visitor'
+                        ? `Format: ${visitorCardPrefix}-001 .. ${visitorCardPrefix}-${String(visitorCardCount).padStart(3, '0')}`
+                        : `Format: ${staffCardPrefix}-001 .. ${staffCardPrefix}-${String(staffCardCount).padStart(3, '0')}`}
+                    </span>
+                    <span className="font-semibold text-slate-700">
+                      Öğrenci Şablonu ile %100 Uyumlu
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Generated Cards Preview Gallery Grid */}
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Oluşturulacak {visitorMode === 'visitor' ? 'Ziyaretçi' : 'Görevli'} Kartları Listesi ({visitorMode === 'visitor' ? currentVisitorList.length : currentStaffList.length} Kart)
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Tüm kartlar ardışık numaralandırılmış olup çıktıda birebir bu sırayla basılacaktır.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={isExportingPdf}
+                  onClick={() => handleExportVisitorOrStaffPdf(visitorMode)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Bu Listeyi PDF İndir
+                </button>
+              </div>
+
+              <div
+                className={`grid gap-4 ${
+                  activeTemplate.orientation === 'landscape'
+                    ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4'
+                    : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6'
+                }`}
+              >
+                {(visitorMode === 'visitor' ? currentVisitorList : currentStaffList).map(
+                  (cardItem, idx) => (
+                    <div
+                      key={cardItem.id}
+                      className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2 flex flex-col justify-between"
+                    >
+                      <div className="flex items-center justify-between text-[11px] font-mono font-semibold text-slate-700">
+                        <span>#{idx + 1}</span>
+                        <span className="text-blue-700 font-bold">{cardItem.studentNumber}</span>
+                      </div>
+                      <CardCanvasPreview
+                        student={cardItem}
+                        template={activeTemplate}
+                        side="front"
+                        className="w-full"
+                      />
+                      <div className="text-[10px] text-slate-500 text-center font-medium truncate">
+                        {cardItem.fieldOfStudy}
+                      </div>
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: TOPLU ÖNİZLEME & A4 BASKI MERKEZİ */}
         {activeTab === 'batch-preview' && (
           <div className="space-y-6">
             {/* Batch Export Control Bar */}

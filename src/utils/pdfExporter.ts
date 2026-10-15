@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import * as XLSX from 'xlsx';
-import { calculateValidityPeriodByClass } from '../constants';
+import { calculateValidityPeriodByClass, inferDepartmentAndStudentNumber } from '../constants';
 import { CardTemplate, PdfExportSettings, StudentRecord } from '../types';
 import { renderStudentCardToCanvas } from './cardRenderer';
 
@@ -199,6 +199,7 @@ export function parseSpreadsheetFile(
         let firstNameCol = '';
         let lastNameCol = '';
         let classCol = '';
+        let alanCol = '';
         let schoolCol = '';
         let schoolLine2Col = '';
         let yearCol = '';
@@ -230,6 +231,11 @@ export function parseSpreadsheetFile(
             firstNameCol = h;
           } else if (!lastNameCol && (norm === 'soyad' || norm === 'soyadi')) {
             lastNameCol = h;
+          } else if (
+            !alanCol &&
+            (norm.includes('alan') || norm.includes('dal') || norm.includes('brans') || norm.includes('meslek'))
+          ) {
+            alanCol = h;
           } else if (
             !classCol &&
             (norm.includes('sinif') || norm.includes('sube') || norm.includes('bolum'))
@@ -276,6 +282,15 @@ export function parseSpreadsheetFile(
             }
 
             const className = classCol ? String(row[classCol] ?? '').trim() : '10-A';
+            const rawDepartment = alanCol ? String(row[alanCol] ?? '').trim() : '';
+
+            // Automatically prepend AMP / ATP to student number and determine student's Field of Study (Alanı)
+            const { formattedStudentNumber, fieldOfStudy } = inferDepartmentAndStudentNumber(
+              rawNo,
+              className,
+              rawDepartment
+            );
+
             let schoolName = defaultSchoolName;
             const rawSchool1 = schoolCol ? String(row[schoolCol] ?? '').trim() : '';
             const rawSchool2 = schoolLine2Col ? String(row[schoolLine2Col] ?? '').trim() : '';
@@ -296,14 +311,17 @@ export function parseSpreadsheetFile(
               ? String(row[emergencyPhoneCol] ?? '').trim()
               : '';
 
+            // Try matching photo with either original number (1042) or prefixed number (AMP-1042)
             const cleanKey = normalizePhotoMatchKey(rawNo);
-            const matchedPhoto = existingPhotosMap.get(cleanKey);
+            const prefixedKey = normalizePhotoMatchKey(formattedStudentNumber);
+            const matchedPhoto = existingPhotosMap.get(cleanKey) || existingPhotosMap.get(prefixedKey);
 
             return {
               id: `row-${Date.now()}-${idx}`,
-              studentNumber: rawNo,
+              studentNumber: formattedStudentNumber,
               fullName,
               className,
+              fieldOfStudy,
               schoolName,
               academicYear,
               bloodType,
@@ -330,10 +348,12 @@ export function parseSpreadsheetFile(
 
 export function normalizePhotoMatchKey(input: string): string {
   const withoutExt = input.replace(/\.[^/.]+$/, '').trim();
-  if (/^\d+$/.test(withoutExt)) {
-    return String(parseInt(withoutExt, 10));
+  // Strip AMP- or ATP- prefix if searching for photo by raw digits
+  const stripped = withoutExt.replace(/^(AMP|ATP)[-_ ]*/i, '');
+  if (/^\d+$/.test(stripped)) {
+    return String(parseInt(stripped, 10));
   }
-  return withoutExt.toLowerCase();
+  return stripped.toLowerCase();
 }
 
 export function downloadSampleExcelFile(students: StudentRecord[]) {
@@ -342,6 +362,7 @@ export function downloadSampleExcelFile(students: StudentRecord[]) {
     return {
       'Okul Numarası': s.studentNumber,
       'Adı Soyadı': s.fullName,
+      'Alanı': s.fieldOfStudy || 'Bilişim Teknolojileri Alanı',
       'Sınıfı': s.className,
       'Okul İsmi 1. Satır': parts[0] || '',
       'Okul İsmi 2. Satır': parts[1] || '',
@@ -356,7 +377,8 @@ export function downloadSampleExcelFile(students: StudentRecord[]) {
   worksheet['!cols'] = [
     { wch: 16 },
     { wch: 24 },
-    { wch: 12 },
+    { wch: 30 },
+    { wch: 14 },
     { wch: 28 },
     { wch: 28 },
     { wch: 15 },
