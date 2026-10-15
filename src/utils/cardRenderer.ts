@@ -738,6 +738,19 @@ export async function renderStudentCardToCanvas(
       continue;
     }
 
+    // Extract photo bounding box on front side for dynamic collision avoidance
+    const photoField: FieldPosition | undefined = template.fields['photo'];
+    let photoLeft = -1;
+    let photoRight = -1;
+    let photoTop = -1;
+    let photoBottom = -1;
+    if (photoField && photoField.visible) {
+      photoLeft = (photoField.x / 100) * W;
+      photoTop = (photoField.y / 100) * H;
+      photoRight = photoLeft + (((photoField.width || 25) / 100) * W);
+      photoBottom = photoTop + (((photoField.height || 52) / 100) * H);
+    }
+
     let rawValue = '';
     if (key === 'fullName') rawValue = student.fullName || 'Adı Soyadı';
     else if (key === 'studentNumber') rawValue = student.studentNumber || '0000';
@@ -755,8 +768,10 @@ export async function renderStudentCardToCanvas(
       const labelFontSize = Math.max(12, Math.round(field.fontSize * 0.56));
       ctx.font = `600 ${labelFontSize}px "Plus Jakarta Sans", sans-serif`;
       ctx.fillStyle = '#64748b';
-      ctx.fillText(field.prefixText.toUpperCase(), px, py);
-      valueOffsetY = py + labelFontSize + 5;
+      const prefixMaxWidth =
+        photoLeft > 0 && px < photoLeft ? Math.max(30, photoLeft - px - 16) : undefined;
+      ctx.fillText(field.prefixText.toUpperCase(), px, py, prefixMaxWidth);
+      valueOffsetY = py + labelFontSize + 4;
     }
 
     const isNumericField = key === 'studentNumber';
@@ -789,6 +804,60 @@ export async function renderStudentCardToCanvas(
           const words = rawValue.split(/\s+/);
           const mid = Math.ceil(words.length / 2);
           lines = [words.slice(0, mid).join(' '), words.slice(mid).join(' ')];
+        } else {
+          lines = [rawValue];
+        }
+      }
+    } else if (key === 'className') {
+      // Smart formatting for student's Alanı / Bölümü to prevent collision with photo
+      const explicitLines = rawValue
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean);
+
+      if (explicitLines.length >= 2) {
+        lines = explicitLines.slice(0, 2);
+      } else {
+        ctx.font = `${field.fontWeight || '700'} ${field.fontSize}px ${fontFamily}`;
+        const measuredSingle = ctx.measureText(rawValue).width;
+
+        // Calculate available single-line width before hitting photo or card edges
+        let availableWidth = (W * 0.96) - px;
+        if (photoLeft > 0) {
+          if (px < photoLeft) {
+            // Field is to the left of photo (e.g., modern-campus template)
+            availableWidth = Math.max(30, photoLeft - px - 18);
+          } else if (px >= photoRight) {
+            // Field is to the right of photo
+            availableWidth = Math.max(30, (W * 0.96) - px);
+          }
+        }
+
+        // If field text is long or exceeds available width, smartly split into 2 balanced lines
+        if ((measuredSingle > availableWidth || rawValue.length > 20) && rawValue.includes(' ')) {
+          if (rawValue.includes(' - ')) {
+            const parts = rawValue.split(/\s*-\s*/);
+            lines = [parts[0], parts.slice(1).join(' - ')];
+          } else {
+            const words = rawValue.split(/\s+/);
+            if (words.length >= 2) {
+              const totalLen = rawValue.length;
+              let bestIdx = 1;
+              let minDiff = Infinity;
+              let accum = 0;
+              for (let i = 0; i < words.length - 1; i++) {
+                accum += words[i].length + 1;
+                const diff = Math.abs(totalLen / 2 - accum);
+                if (diff < minDiff) {
+                  minDiff = diff;
+                  bestIdx = i + 1;
+                }
+              }
+              lines = [words.slice(0, bestIdx).join(' '), words.slice(bestIdx).join(' ')];
+            } else {
+              lines = [rawValue];
+            }
+          }
         } else {
           lines = [rawValue];
         }
@@ -832,21 +901,63 @@ export async function renderStudentCardToCanvas(
       ctx.textAlign = lineAlign;
       ctx.font = `${targetWeight} ${targetFontSize}px ${fontFamily}`;
 
-      // Dynamic auto-fit: if any line exceeds available width, shrink font size until it fits
-      const maxAllowedWidth =
-        key === 'schoolName'
-          ? maxSchoolWidth
-          : key === 'fullName'
-          ? W * 0.56
-          : W * 0.88;
+      // Dynamic auto-fit with strict photo collision prevention:
+      // compute maxAllowedWidth so text never spills over student photo or card boundary
+      let maxAllowedWidth = W * 0.88;
 
-      while (ctx.measureText(lineText).width > maxAllowedWidth && targetFontSize > 10) {
+      if (key === 'schoolName') {
+        maxAllowedWidth = maxSchoolWidth;
+      } else if (key === 'fullName') {
+        maxAllowedWidth =
+          photoLeft > 0 && linePx < photoLeft
+            ? Math.max(40, photoLeft - linePx - 16)
+            : W * 0.56;
+      } else {
+        // Strict photo avoidance check for className, studentNumber, etc.
+        if (photoLeft > 0) {
+          const isVerticallyInPhotoRange =
+            currentLineY + targetFontSize >= photoTop - 6 && currentLineY <= photoBottom + 6;
+
+          if (isVerticallyInPhotoRange) {
+            if (lineAlign === 'left') {
+              if (linePx < photoLeft) {
+                // Text is to the left of the photo, moving right. MUST NEVER TOUCH PHOTO!
+                maxAllowedWidth = Math.max(30, photoLeft - linePx - 16);
+              } else if (linePx >= photoRight) {
+                // Text is to the right of the photo, bounded by card edge
+                maxAllowedWidth = Math.max(30, (W * 0.96) - linePx);
+              }
+            } else if (lineAlign === 'center') {
+              if (linePx < photoLeft) {
+                maxAllowedWidth = Math.max(30, 2 * (photoLeft - linePx - 16));
+              } else if (linePx > photoRight) {
+                maxAllowedWidth = Math.max(
+                  30,
+                  2 * Math.min(linePx - photoRight - 16, (W * 0.96) - linePx)
+                );
+              }
+            } else if (lineAlign === 'right') {
+              if (linePx > photoRight) {
+                maxAllowedWidth = Math.max(30, linePx - photoRight - 16);
+              }
+            }
+          } else {
+            if (lineAlign === 'left') {
+              maxAllowedWidth = Math.max(40, (W * 0.96) - linePx);
+            }
+          }
+        } else {
+          maxAllowedWidth = Math.max(40, (W * 0.96) - linePx);
+        }
+      }
+
+      while (ctx.measureText(lineText).width > maxAllowedWidth && targetFontSize > 9) {
         targetFontSize -= 0.5;
         ctx.font = `${targetWeight} ${targetFontSize}px ${fontFamily}`;
       }
 
       ctx.fillText(lineText, linePx, currentLineY, maxAllowedWidth);
-      const measured = Math.max(40, Math.min(ctx.measureText(lineText).width, maxAllowedWidth));
+      const measured = Math.max(30, Math.min(ctx.measureText(lineText).width, maxAllowedWidth));
 
       let lineLeft = linePx;
       if (lineAlign === 'center') lineLeft = linePx - measured / 2;
@@ -855,7 +966,7 @@ export async function renderStudentCardToCanvas(
       if (lineLeft < minBoundingX) minBoundingX = lineLeft;
       if (lineLeft + measured > maxBoundingRight) maxBoundingRight = lineLeft + measured;
 
-      currentLineY += Math.round(targetFontSize * 1.24);
+      currentLineY += Math.round(targetFontSize * 1.20);
     });
 
     if (options?.showInteractiveGuides && options.selectedField === key) {

@@ -2795,6 +2795,16 @@ export default function App() {
                             )}
                         </div>
                       )}
+
+                    {/* Helpful indicator for Alanı / Bölümü field */}
+                    {activeSelectedFieldKey === 'className' && (
+                      <div className="mt-3 p-2.5 bg-blue-50/70 border border-blue-200/60 rounded-lg flex items-start gap-2">
+                        <span className="text-blue-600 text-sm leading-none mt-0.5">🛡️</span>
+                        <p className="text-[11px] text-blue-900 leading-relaxed">
+                          <strong>Akıllı Fotoğraf Koruması Aktif:</strong> Alan adı uzun olduğunda (örn. <em>Elektrik - Elektronik Teknolojisi</em>, <em>Bilişim Teknolojileri</em>) metin otomatik olarak 2 dengeli satıra bölünür ve fotoğraf çerçevesiyle asla çakışmaz.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
 
