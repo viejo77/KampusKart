@@ -73,12 +73,11 @@ export function inferDepartmentAndStudentNumber(
     prefix = prefixMatch[1].toUpperCase();
   }
 
-  // Prepend prefix to student number if not already present
+  // Prepend prefix to student number (e.g., "1205" with class "AMP 9-A" -> "AMP 1205")
   let formattedStudentNumber = cleanNo;
   if (prefix && cleanNo) {
-    if (!cleanNo.toUpperCase().startsWith(prefix)) {
-      formattedStudentNumber = `${prefix}-${cleanNo}`;
-    }
+    const strippedNo = cleanNo.replace(/^(AMP|ATP)[-_\s]*/i, '').trim();
+    formattedStudentNumber = `${prefix} ${strippedNo || cleanNo}`;
   }
 
   // 2. Determine Field of Study (Alanı)
@@ -452,7 +451,7 @@ export function createDefaultBackFields(
 export const INITIAL_STUDENTS: StudentRecord[] = [
   {
     id: 'std-1',
-    studentNumber: 'ATP-1042',
+    studentNumber: 'ATP 1042',
     fullName: 'Elif Yılmaz',
     schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen ve Teknik Lisesi',
     className: 'ATP 10-A',
@@ -465,7 +464,7 @@ export const INITIAL_STUDENTS: StudentRecord[] = [
   },
   {
     id: 'std-2',
-    studentNumber: 'ATP-1045',
+    studentNumber: 'ATP 1045',
     fullName: 'Kerem Demir',
     schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen ve Teknik Lisesi',
     className: 'ATP 10-B',
@@ -478,7 +477,7 @@ export const INITIAL_STUDENTS: StudentRecord[] = [
   },
   {
     id: 'std-3',
-    studentNumber: 'AMP-1088',
+    studentNumber: 'AMP 1088',
     fullName: 'Zeynep Kaya',
     schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen ve Teknik Lisesi',
     className: 'AMP 11-A',
@@ -491,7 +490,7 @@ export const INITIAL_STUDENTS: StudentRecord[] = [
   },
   {
     id: 'std-4',
-    studentNumber: 'ATP-1104',
+    studentNumber: 'ATP 1104',
     fullName: 'Mert Çelik',
     schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen ve Teknik Lisesi',
     className: 'ATP 11-B',
@@ -504,7 +503,7 @@ export const INITIAL_STUDENTS: StudentRecord[] = [
   },
   {
     id: 'std-5',
-    studentNumber: 'AMP-1129',
+    studentNumber: 'AMP 1129',
     fullName: 'Defne Şahin',
     schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen ve Teknik Lisesi',
     className: 'AMP 9-A',
@@ -517,7 +516,7 @@ export const INITIAL_STUDENTS: StudentRecord[] = [
   },
   {
     id: 'std-6',
-    studentNumber: 'AMP-1156',
+    studentNumber: 'AMP 1156',
     fullName: 'Caner Aydın',
     schoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen ve Teknik Lisesi',
     className: 'AMP 12-A',

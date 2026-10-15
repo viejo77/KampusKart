@@ -360,7 +360,8 @@ export function downloadSampleExcelFile(students: StudentRecord[]) {
   const rows = students.map((s) => {
     const parts = (s.schoolName || '').split(/\r?\n/);
     return {
-      'Okul Numarası': s.studentNumber,
+      // Raw school number (user can directly write 1205, app will automatically prepend AMP / ATP based on class)
+      'Okul Numarası': s.studentNumber.replace(/^(AMP|ATP)[-_\s]*/i, '') || s.studentNumber,
       'Adı Soyadı': s.fullName,
       'Alanı': s.fieldOfStudy || 'Bilişim Teknolojileri Alanı',
       'Sınıfı': s.className,
