@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle2,
   Download,
@@ -19,10 +19,31 @@ import {
   Shield,
   UserCheck,
   IdCard,
+  Palette,
+  Sliders,
+  Type,
+  Layout,
+  HardDrive,
+  Database,
+  UploadCloud,
+  DownloadCloud,
+  Check,
+  Save,
+  RefreshCw,
 } from 'lucide-react';
+import {
+  loadAppState,
+  saveAppState,
+  clearAppState,
+  downloadBackupFile,
+  parseBackupFile,
+  AppPersistedState,
+} from './utils/storage';
 import {
   BUILT_IN_TEMPLATES,
   calculateValidityPeriodByClass,
+  DEFAULT_STAFF_TEMPLATE,
+  DEFAULT_VISITOR_TEMPLATE,
   DEFAULT_WATERMARK_CONFIG,
   inferDepartmentAndStudentNumber,
   INITIAL_STUDENTS,
@@ -114,18 +135,35 @@ export default function App() {
     schoolName: 'Atatürk Fen ve Teknik Lisesi',
   });
 
+  // Visitor & Staff Dedicated Single-Sided Templates (No Photo, No Back Side)
+  const [visitorTemplate, setVisitorTemplate] = useState<CardTemplate>(() => ({
+    ...DEFAULT_VISITOR_TEMPLATE,
+    defaultSchoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen Lisesi',
+  }));
+
+  const [staffTemplate, setStaffTemplate] = useState<CardTemplate>(() => ({
+    ...DEFAULT_STAFF_TEMPLATE,
+    defaultSchoolName: 'T.C. MİLLÎ EĞİTİM BAKANLIĞI\nAtatürk Fen Lisesi',
+  }));
+
   // Visitor & Staff Card Generation State
   const [visitorMode, setVisitorMode] = useState<'visitor' | 'staff'>('visitor');
-  const [visitorSide, setVisitorSide] = useState<'front' | 'back'>('front');
+  const [visitorSubTab, setVisitorSubTab] = useState<'info' | 'colors' | 'fields'>('info');
   const [visitorCardCount, setVisitorCardCount] = useState<number>(10);
   const [visitorCardPrefix, setVisitorCardPrefix] = useState<string>('ZYR');
   const [visitorCardTitle, setVisitorCardTitle] = useState<string>('ZİYARETÇİ KARTI');
   const [visitorCardSubtitle, setVisitorCardSubtitle] = useState<string>('Günübirlik Giriş / Güvenlik Kontrolü');
+  const [visitorNamePattern, setVisitorNamePattern] = useState<string>('ZİYARETÇİ - {no}');
 
   const [staffCardCount, setStaffCardCount] = useState<number>(5);
   const [staffCardPrefix, setStaffCardPrefix] = useState<string>('GRV');
   const [staffCardTitle, setStaffCardTitle] = useState<string>('GÖREVLİ KARTI');
   const [staffCardSubtitle, setStaffCardSubtitle] = useState<string>('Sınav & Etkinlik Görevlisi');
+  const [staffNamePattern, setStaffNamePattern] = useState<string>('GÖREVLİ - {no}');
+
+  const [visitorSelectedField, setVisitorSelectedField] = useState<FrontFieldKey>('studentNumber');
+  const [visitorPreviewIdx, setVisitorPreviewIdx] = useState<number>(0);
+  const [templateStudioCardType, setTemplateStudioCardType] = useState<'student' | 'visitor' | 'staff'>('student');
 
   // File input refs
   const excelInputRef = useRef<HTMLInputElement | null>(null);
@@ -135,7 +173,270 @@ export default function App() {
   const schoolLogoInputRef = useRef<HTMLInputElement | null>(null);
   const principalSigInputRef = useRef<HTMLInputElement | null>(null);
   const singleRowPhotoInputRef = useRef<HTMLInputElement | null>(null);
+  const visitorBgInputRef = useRef<HTMLInputElement | null>(null);
+  const visitorLogoInputRef = useRef<HTMLInputElement | null>(null);
+  const backupFileInputRef = useRef<HTMLInputElement | null>(null);
   const [singlePhotoTargetStudentId, setSinglePhotoTargetStudentId] = useState<string | null>(null);
+
+  // Storage & Persistence State (prevents data loss on page refresh)
+  const [isLoadedFromStorage, setIsLoadedFromStorage] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
+  const [showBackupModal, setShowBackupModal] = useState<boolean>(false);
+
+  // Restore saved state from IndexedDB on initial mount
+  useEffect(() => {
+    let isMounted = true;
+    const restoreSavedData = async () => {
+      try {
+        const saved = await loadAppState();
+        if (saved && isMounted) {
+          if (Array.isArray(saved.students) && saved.students.length > 0) {
+            setStudents(saved.students);
+          }
+          if (Array.isArray(saved.photoPoolEntries)) {
+            setPhotoPool(new Map(saved.photoPoolEntries));
+          }
+          if (Array.isArray(saved.templates) && saved.templates.length > 0) {
+            setTemplates(saved.templates);
+          }
+          if (saved.activeTemplateId) {
+            setActiveTemplateId(saved.activeTemplateId);
+          }
+          if (saved.visitorTemplate) {
+            setVisitorTemplate(saved.visitorTemplate);
+          }
+          if (saved.staffTemplate) {
+            setStaffTemplate(saved.staffTemplate);
+          }
+          if (saved.globalSchoolLine1 !== undefined) {
+            setGlobalSchoolLine1(saved.globalSchoolLine1);
+          }
+          if (saved.globalSchoolLine2 !== undefined) {
+            setGlobalSchoolLine2(saved.globalSchoolLine2);
+          }
+          if (saved.globalAcademicYear !== undefined) {
+            setGlobalAcademicYear(saved.globalAcademicYear);
+          }
+          if (saved.visitorSettings) {
+            setVisitorCardCount(saved.visitorSettings.count);
+            setVisitorCardPrefix(saved.visitorSettings.prefix);
+            setVisitorCardTitle(saved.visitorSettings.title);
+            setVisitorCardSubtitle(saved.visitorSettings.subtitle);
+            setVisitorNamePattern(saved.visitorSettings.pattern);
+          }
+          if (saved.staffSettings) {
+            setStaffCardCount(saved.staffSettings.count);
+            setStaffCardPrefix(saved.staffSettings.prefix);
+            setStaffCardTitle(saved.staffSettings.title);
+            setStaffCardSubtitle(saved.staffSettings.subtitle);
+            setStaffNamePattern(saved.staffSettings.pattern);
+          }
+          if (saved.pdfSettings) {
+            setPdfSettings(saved.pdfSettings);
+          }
+          if (saved.savedAt) {
+            setLastSavedTime(
+              new Date(saved.savedAt).toLocaleTimeString('tr-TR', {
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+            );
+          }
+          setSaveStatus('saved');
+        }
+      } catch (err) {
+        console.error('Failed to load state from IndexedDB:', err);
+      } finally {
+        if (isMounted) {
+          setIsLoadedFromStorage(true);
+        }
+      }
+    };
+
+    restoreSavedData();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Auto-save changes to persistent IndexedDB storage
+  useEffect(() => {
+    if (!isLoadedFromStorage) return;
+
+    setSaveStatus('saving');
+    const timer = setTimeout(async () => {
+      try {
+        const photoPoolEntries = Array.from(photoPool.entries());
+        const stateToSave: AppPersistedState = {
+          version: 1,
+          savedAt: new Date().toISOString(),
+          students,
+          photoPoolEntries,
+          templates,
+          activeTemplateId,
+          visitorTemplate,
+          staffTemplate,
+          globalSchoolLine1,
+          globalSchoolLine2,
+          globalAcademicYear,
+          visitorSettings: {
+            count: visitorCardCount,
+            prefix: visitorCardPrefix,
+            title: visitorCardTitle,
+            subtitle: visitorCardSubtitle,
+            pattern: visitorNamePattern,
+          },
+          staffSettings: {
+            count: staffCardCount,
+            prefix: staffCardPrefix,
+            title: staffCardTitle,
+            subtitle: staffCardSubtitle,
+            pattern: staffNamePattern,
+          },
+          pdfSettings,
+        };
+
+        const success = await saveAppState(stateToSave);
+        if (success) {
+          setSaveStatus('saved');
+          setLastSavedTime(
+            new Date().toLocaleTimeString('tr-TR', {
+              hour: '2-digit',
+              minute: '2-digit',
+            })
+          );
+        } else {
+          setSaveStatus('error');
+        }
+      } catch (err) {
+        console.error('Auto-save error:', err);
+        setSaveStatus('error');
+      }
+    }, 650);
+
+    return () => clearTimeout(timer);
+  }, [
+    isLoadedFromStorage,
+    students,
+    photoPool,
+    templates,
+    activeTemplateId,
+    visitorTemplate,
+    staffTemplate,
+    globalSchoolLine1,
+    globalSchoolLine2,
+    globalAcademicYear,
+    visitorCardCount,
+    visitorCardPrefix,
+    visitorCardTitle,
+    visitorCardSubtitle,
+    visitorNamePattern,
+    staffCardCount,
+    staffCardPrefix,
+    staffCardTitle,
+    staffCardSubtitle,
+    staffNamePattern,
+    pdfSettings,
+  ]);
+
+  // Export full JSON backup
+  const handleExportFullBackup = () => {
+    const photoPoolEntries = Array.from(photoPool.entries());
+    const stateToSave: AppPersistedState = {
+      version: 1,
+      savedAt: new Date().toISOString(),
+      students,
+      photoPoolEntries,
+      templates,
+      activeTemplateId,
+      visitorTemplate,
+      staffTemplate,
+      globalSchoolLine1,
+      globalSchoolLine2,
+      globalAcademicYear,
+      visitorSettings: {
+        count: visitorCardCount,
+        prefix: visitorCardPrefix,
+        title: visitorCardTitle,
+        subtitle: visitorCardSubtitle,
+        pattern: visitorNamePattern,
+      },
+      staffSettings: {
+        count: staffCardCount,
+        prefix: staffCardPrefix,
+        title: staffCardTitle,
+        subtitle: staffCardSubtitle,
+        pattern: staffNamePattern,
+      },
+      pdfSettings,
+    };
+    downloadBackupFile(stateToSave);
+    setStatusBanner({
+      type: 'success',
+      message: 'Tüm öğrenci verileri, şablonlar, logolar ve ayarlar JSON yedek dosyası olarak indirildi.',
+    });
+  };
+
+  // Import full JSON backup
+  const handleImportFullBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const parsed = await parseBackupFile(file);
+      if (Array.isArray(parsed.students)) setStudents(parsed.students);
+      if (Array.isArray(parsed.photoPoolEntries)) setPhotoPool(new Map(parsed.photoPoolEntries));
+      if (Array.isArray(parsed.templates)) setTemplates(parsed.templates);
+      if (parsed.activeTemplateId) setActiveTemplateId(parsed.activeTemplateId);
+      if (parsed.visitorTemplate) setVisitorTemplate(parsed.visitorTemplate);
+      if (parsed.staffTemplate) setStaffTemplate(parsed.staffTemplate);
+      if (parsed.globalSchoolLine1 !== undefined) setGlobalSchoolLine1(parsed.globalSchoolLine1);
+      if (parsed.globalSchoolLine2 !== undefined) setGlobalSchoolLine2(parsed.globalSchoolLine2);
+      if (parsed.globalAcademicYear !== undefined) setGlobalAcademicYear(parsed.globalAcademicYear);
+      if (parsed.visitorSettings) {
+        setVisitorCardCount(parsed.visitorSettings.count);
+        setVisitorCardPrefix(parsed.visitorSettings.prefix);
+        setVisitorCardTitle(parsed.visitorSettings.title);
+        setVisitorCardSubtitle(parsed.visitorSettings.subtitle);
+        setVisitorNamePattern(parsed.visitorSettings.pattern);
+      }
+      if (parsed.staffSettings) {
+        setStaffCardCount(parsed.staffSettings.count);
+        setStaffCardPrefix(parsed.staffSettings.prefix);
+        setStaffCardTitle(parsed.staffSettings.title);
+        setStaffCardSubtitle(parsed.staffSettings.subtitle);
+        setStaffNamePattern(parsed.staffSettings.pattern);
+      }
+      if (parsed.pdfSettings) setPdfSettings(parsed.pdfSettings);
+
+      await saveAppState(parsed);
+      setShowBackupModal(false);
+      setStatusBanner({
+        type: 'success',
+        message: `Yedek dosyası başarıyla yüklendi! ${parsed.students?.length || 0} öğrenci ve tüm kart şablonları geri yüklendi.`,
+      });
+    } catch (err) {
+      setStatusBanner({
+        type: 'warning',
+        message: err instanceof Error ? err.message : 'Yedek dosyası yüklenemedi.',
+      });
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  // Reset all to factory defaults
+  const handleResetAllToFactory = async () => {
+    if (
+      window.confirm(
+        'DİKKAT: Tarayıcınızda kayıtlı tüm öğrenci listesi, fotoğraflar, özel logolar ve kart ayarları silinip varsayılan ayarlara döndürülecektir.\\n\\nİşleme devam etmek istiyor musunuz?'
+      )
+    ) {
+      await clearAppState();
+      window.location.reload();
+    }
+  };
 
   const activeTemplate = useMemo(() => {
     return templates.find((t) => t.id === activeTemplateId) || templates[0];
@@ -145,6 +446,65 @@ export default function App() {
     setTemplates((prev) =>
       prev.map((t) => (t.id === activeTemplate.id ? updater(t) : t))
     );
+  };
+
+  const currentVisitorOrStaffTemplate = visitorMode === 'visitor' ? visitorTemplate : staffTemplate;
+  const updateCurrentVisitorOrStaffTemplate = (updater: (prev: CardTemplate) => CardTemplate) => {
+    if (visitorMode === 'visitor') {
+      setVisitorTemplate((prev) => {
+        const next = updater(prev);
+        return {
+          ...next,
+          enableBackSide: false,
+          fields: {
+            ...next.fields,
+            photo: { ...next.fields.photo, visible: false },
+          },
+        };
+      });
+    } else {
+      setStaffTemplate((prev) => {
+        const next = updater(prev);
+        return {
+          ...next,
+          enableBackSide: false,
+          fields: {
+            ...next.fields,
+            photo: { ...next.fields.photo, visible: false },
+          },
+        };
+      });
+    }
+  };
+
+  const currentStudioTemplate = useMemo(() => {
+    if (templateStudioCardType === 'visitor') return visitorTemplate;
+    if (templateStudioCardType === 'staff') return staffTemplate;
+    return activeTemplate;
+  }, [templateStudioCardType, visitorTemplate, staffTemplate, activeTemplate]);
+
+  const updateStudioTemplate = (updater: (prev: CardTemplate) => CardTemplate) => {
+    if (templateStudioCardType === 'visitor') {
+      setVisitorTemplate((p) => {
+        const next = updater(p);
+        return {
+          ...next,
+          enableBackSide: false,
+          fields: { ...next.fields, photo: { ...next.fields.photo, visible: false } },
+        };
+      });
+    } else if (templateStudioCardType === 'staff') {
+      setStaffTemplate((p) => {
+        const next = updater(p);
+        return {
+          ...next,
+          enableBackSide: false,
+          fields: { ...next.fields, photo: { ...next.fields.photo, visible: false } },
+        };
+      });
+    } else {
+      updateActiveTemplate(updater);
+    }
   };
 
   const activeWatermark: WatermarkConfig = activeTemplate.watermark || DEFAULT_WATERMARK_CONFIG;
@@ -431,6 +791,48 @@ export default function App() {
     e.target.value = '';
   };
 
+  // Visitor/Staff Logo Image Upload
+  const handleVisitorLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      if (!dataUrl) return;
+      updateCurrentVisitorOrStaffTemplate((prev) => ({
+        ...prev,
+        schoolLogoUrl: dataUrl,
+      }));
+      setStatusBanner({
+        type: 'success',
+        message: 'Kurum logosu kart şablonuna yüklendi.',
+      });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // Visitor/Staff Custom Background Image Upload
+  const handleVisitorBgUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      if (!dataUrl) return;
+      updateCurrentVisitorOrStaffTemplate((prev) => ({
+        ...prev,
+        customBackgroundUrl: dataUrl,
+      }));
+      setStatusBanner({
+        type: 'success',
+        message: 'Özel arka plan görseli kart şablonuna uygulandı.',
+      });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
   // Apply Global School Name & Grade-Based Validity Period (Dönem) to all rows
   const handleApplyGlobalSchoolToAll = () => {
     setStudents((prev) =>
@@ -540,43 +942,54 @@ export default function App() {
     setStudents((prev) => prev.filter((s) => s.id !== id));
   };
 
-  // Dynamically generate visitor & staff card lists using active template settings
+  // Dynamically generate visitor & staff card lists using dedicated templates
   const currentVisitorList = useMemo(() => {
     return generateVisitorCards(visitorCardCount, {
-      schoolName: combinedGlobalSchoolName,
+      schoolName: visitorTemplate.defaultSchoolName || combinedGlobalSchoolName,
       prefix: visitorCardPrefix,
       title: visitorCardTitle,
       subtitle: visitorCardSubtitle,
+      namePattern: visitorNamePattern,
+      validity: visitorTemplate.defaultAcademicYear || 'GÜNÜBİRLİK',
     });
   }, [
     visitorCardCount,
+    visitorTemplate.defaultSchoolName,
+    visitorTemplate.defaultAcademicYear,
     combinedGlobalSchoolName,
     visitorCardPrefix,
     visitorCardTitle,
     visitorCardSubtitle,
+    visitorNamePattern,
   ]);
 
   const currentStaffList = useMemo(() => {
     return generateStaffCards(staffCardCount, {
-      schoolName: combinedGlobalSchoolName,
+      schoolName: staffTemplate.defaultSchoolName || combinedGlobalSchoolName,
       prefix: staffCardPrefix,
       title: staffCardTitle,
       subtitle: staffCardSubtitle,
-      validity: globalAcademicYear,
+      validity: staffTemplate.defaultAcademicYear || globalAcademicYear,
+      namePattern: staffNamePattern,
     });
   }, [
     staffCardCount,
+    staffTemplate.defaultSchoolName,
+    staffTemplate.defaultAcademicYear,
     combinedGlobalSchoolName,
     staffCardPrefix,
     staffCardTitle,
     staffCardSubtitle,
     globalAcademicYear,
+    staffNamePattern,
   ]);
 
-  // Export Visitor or Staff cards directly to PDF
+  // Export Visitor or Staff cards directly to PDF (strictly single-sided, no back side)
   const handleExportVisitorOrStaffPdf = async (type: 'visitor' | 'staff') => {
     const list = type === 'visitor' ? currentVisitorList : currentStaffList;
     if (list.length === 0 || isExportingPdf) return;
+
+    const targetTemplate = type === 'visitor' ? visitorTemplate : staffTemplate;
 
     setIsExportingPdf(true);
     setExportProgress({ current: 0, total: list.length });
@@ -584,10 +997,10 @@ export default function App() {
     try {
       await generateBatchStudentCardsPdf(
         list,
-        activeTemplate,
+        targetTemplate,
         {
           ...pdfSettings,
-          includeBackSide: activeTemplate.enableBackSide,
+          includeBackSide: false, // Strict single-sided: no back face per user instruction
         },
         (current, total) => {
           setExportProgress({ current, total });
@@ -597,7 +1010,7 @@ export default function App() {
         type: 'success',
         message: `${list.length} adet ${
           type === 'visitor' ? 'Ziyaretçi' : 'Görevli'
-        } Kartı PDF olarak başarıyla indirildi.`,
+        } Kartı (Tek Yüzlü) PDF olarak başarıyla indirildi.`,
       });
     } catch {
       setStatusBanner({
@@ -669,17 +1082,69 @@ export default function App() {
       emergencyPhone: '0532 111 22 33',
     };
 
+  const previewStudentForStudio = useMemo(() => {
+    if (templateStudioCardType === 'visitor') {
+      return (
+        currentVisitorList[0] || {
+          id: 'preview-visitor',
+          studentNumber: `${visitorCardPrefix}-001`,
+          fullName: visitorNamePattern.replace('{no}', '01').replace('{num}', '1'),
+          className: 'Güvenlik Kayıtlı',
+          fieldOfStudy: visitorCardSubtitle,
+          schoolName: visitorTemplate.defaultSchoolName || combinedGlobalSchoolName,
+          academicYear: 'GÜNÜBİRLİK',
+          bloodType: '-',
+          emergencyPhone: 'Nizamiye Güvenlik',
+        }
+      );
+    }
+    if (templateStudioCardType === 'staff') {
+      return (
+        currentStaffList[0] || {
+          id: 'preview-staff',
+          studentNumber: `${staffCardPrefix}-001`,
+          fullName: staffNamePattern.replace('{no}', '01').replace('{num}', '1'),
+          className: 'Yetkili Personel',
+          fieldOfStudy: staffCardSubtitle,
+          schoolName: staffTemplate.defaultSchoolName || combinedGlobalSchoolName,
+          academicYear: staffTemplate.defaultAcademicYear || globalAcademicYear,
+          bloodType: '-',
+          emergencyPhone: 'Okul Yönetimi',
+        }
+      );
+    }
+    return previewStudent;
+  }, [
+    templateStudioCardType,
+    currentVisitorList,
+    currentStaffList,
+    previewStudent,
+    visitorCardPrefix,
+    visitorNamePattern,
+    visitorCardSubtitle,
+    visitorTemplate.defaultSchoolName,
+    combinedGlobalSchoolName,
+    staffCardPrefix,
+    staffNamePattern,
+    staffCardSubtitle,
+    staffTemplate.defaultSchoolName,
+    staffTemplate.defaultAcademicYear,
+    globalAcademicYear,
+  ]);
+
   const activeSelectedFieldKey: FieldKey =
-    editingSide === 'back' ? selectedBackField : selectedFrontField;
+    editingSide === 'back' && currentStudioTemplate.enableBackSide
+      ? selectedBackField
+      : selectedFrontField;
 
   const currentFieldConfig: FieldPosition =
-    editingSide === 'back'
-      ? activeTemplate.backFields[selectedBackField]
-      : activeTemplate.fields[selectedFrontField];
+    editingSide === 'back' && currentStudioTemplate.enableBackSide
+      ? currentStudioTemplate.backFields[selectedBackField]
+      : currentStudioTemplate.fields[selectedFrontField];
 
   const updateCurrentSelectedField = (patch: Partial<FieldPosition>) => {
-    if (editingSide === 'back') {
-      updateActiveTemplate((prev) => ({
+    if (editingSide === 'back' && currentStudioTemplate.enableBackSide) {
+      updateStudioTemplate((prev) => ({
         ...prev,
         backFields: {
           ...prev.backFields,
@@ -690,7 +1155,7 @@ export default function App() {
         },
       }));
     } else {
-      updateActiveTemplate((prev) => ({
+      updateStudioTemplate((prev) => ({
         ...prev,
         fields: {
           ...prev.fields,
@@ -756,6 +1221,27 @@ export default function App() {
         onChange={handleSingleStudentPhotoChange}
         className="hidden"
       />
+      <input
+        ref={visitorBgInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleVisitorBgUpload}
+        className="hidden"
+      />
+      <input
+        ref={visitorLogoInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleVisitorLogoUpload}
+        className="hidden"
+      />
+      <input
+        ref={backupFileInputRef}
+        type="file"
+        accept=".json,application/json"
+        onChange={handleImportFullBackup}
+        className="hidden"
+      />
 
       {/* Top Bar Contract: Zone 1 (Brand), Zone 2 (Navigation Links), Zone 3 (Primary Actions) */}
       <header className="sticky top-0 z-30 flex items-center justify-between px-6 py-3.5 bg-white border-b border-slate-200">
@@ -819,29 +1305,174 @@ export default function App() {
           </button>
         </nav>
 
-        {/* Zone 3: 1-2 Primary Actions */}
-        <div className="flex items-center gap-3">
+        {/* Zone 3: Storage Status, Backup, and Primary Actions */}
+        <div className="flex items-center gap-2.5">
+          {/* Storage Auto-Save Status Badge */}
+          {saveStatus === 'saving' ? (
+            <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-amber-700 bg-amber-50 rounded-lg border border-amber-200">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-600" />
+              <span>Kaydediliyor...</span>
+            </div>
+          ) : (
+            <div
+              className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-lg border border-emerald-200"
+              title="Tüm ayarlar ve öğrenci bilgileri tarayıcı hafızasında saklanıyor. Sayfayı yenilediğinizde silinmez."
+            >
+              <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
+              <span>Otomatik Kayıtlı {lastSavedTime ? `(${lastSavedTime})` : ''}</span>
+            </div>
+          )}
+
+          {/* Backup & Memory Modal Button */}
+          <button
+            type="button"
+            onClick={() => setShowBackupModal(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors whitespace-nowrap cursor-pointer shadow-2xs"
+            title="Tarayıcı Hafıza Durumu ve JSON Yedekleme / Geri Yükleme"
+          >
+            <HardDrive className="w-4 h-4 text-slate-600" />
+            <span className="hidden sm:inline">Hafıza & Yedek</span>
+          </button>
+
           <button
             type="button"
             onClick={() => downloadSampleExcelFile(INITIAL_STUDENTS)}
-            className="hidden sm:inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors whitespace-nowrap"
+            className="hidden sm:inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors whitespace-nowrap"
           >
             <FileSpreadsheet className="w-4 h-4 text-slate-600" />
-            Örnek Excel İndir
+            Örnek Excel
           </button>
           <button
             type="button"
             disabled={isExportingPdf || students.length === 0}
             onClick={handleExportBatchPdf}
-            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors whitespace-nowrap shadow-xs cursor-pointer"
+            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors whitespace-nowrap shadow-xs cursor-pointer"
           >
             <Download className="w-4 h-4" />
             {isExportingPdf && exportProgress
-              ? `PDF Hazırlanıyor (${exportProgress.current}/${exportProgress.total})`
-              : `Toplu PDF İndir (${students.length} ${activeTemplate.enableBackSide ? 'Çift Yön' : 'Kart'})`}
+              ? `PDF (${exportProgress.current}/${exportProgress.total})`
+              : `Toplu PDF (${students.length} ${activeTemplate.enableBackSide ? 'Çift Yön' : 'Kart'})`}
           </button>
         </div>
       </header>
+
+      {/* Hafıza & Yedekleme Merkezi Modal */}
+      {showBackupModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full p-6 space-y-5">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
+                  <HardDrive className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Tarayıcı Hafızası & Veri Güvencesi
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Bilgileriniz sayfa yenilense de asla silinmez
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBackupModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Status Information Box */}
+            <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 flex items-start gap-3 text-xs text-emerald-900">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-semibold text-emerald-950">
+                  Otomatik Yerel Hafıza (IndexedDB) Aktif
+                </p>
+                <p className="text-emerald-800 leading-relaxed">
+                  Öğrenci listeniz ({students.length} kişi), yüklediğiniz fotoğraflar, Ziyaretçi & Görevli kartları ve yaptığınız tüm renk/şablon düzenlemeleri tarayıcınızın yerel belleğine anlık olarak kaydedilir. Sayfayı yenilediğinizde (F5) veya tarayıcıyı kapattığınızda hiçbir veriniz kaybolmaz.
+                </p>
+                {lastSavedTime && (
+                  <p className="text-emerald-700 text-[11px] pt-1">
+                    Son otomatik kayıt: <strong>{lastSavedTime}</strong>
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Actions Grid */}
+            <div className="space-y-3">
+              <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800">
+                    Tüm Verileri Dosya Olarak Yedekle
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    Tüm öğrencileri, fotoğrafları ve şablonları .json formatında bilgisayarınıza kaydeder.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleExportFullBackup}
+                  className="px-3.5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors whitespace-nowrap inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
+                >
+                  <DownloadCloud className="w-4 h-4" />
+                  Yedek İndir (.json)
+                </button>
+              </div>
+
+              <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800">
+                    Yedek Dosyasından Geri Yükle
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    Daha önce indirdiğiniz bir KampüsKart .json yedeğini sisteme yükler.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => backupFileInputRef.current?.click()}
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg transition-colors whitespace-nowrap inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                >
+                  <UploadCloud className="w-4 h-4 text-slate-600" />
+                  Yedek Seç (.json)
+                </button>
+              </div>
+
+              <div className="p-3.5 rounded-xl border border-red-200 bg-red-50/50 flex items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-xs font-bold text-red-900">
+                    Fabrika Ayarlarına Sıfırla
+                  </h4>
+                  <p className="text-[11px] text-red-700">
+                    Tüm kayıtlı verileri ve şablonları silip ilk haline döndürür.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleResetAllToFactory}
+                  className="px-3 py-1.5 text-xs font-semibold text-red-700 bg-red-100 hover:bg-red-200 rounded-lg transition-colors whitespace-nowrap inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Sıfırla
+                </button>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setShowBackupModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Mobile Navigation Bar */}
       <div className="flex md:hidden items-center justify-around bg-white border-b border-slate-200 px-2 py-2 overflow-x-auto">
@@ -888,6 +1519,14 @@ export default function App() {
           }`}
         >
           4. Baskı ({students.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowBackupModal(true)}
+          className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 rounded-md whitespace-nowrap flex items-center gap-1"
+        >
+          <HardDrive className="w-3.5 h-3.5 text-slate-600" />
+          Yedek
         </button>
       </div>
 
@@ -1858,66 +2497,142 @@ export default function App() {
         {/* TAB 2: ŞABLON & YERLEŞİM STÜDYOSU (FRONT & BACK DRAG & DROP) */}
         {activeTab === 'template-studio' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            {/* Top Category Switcher: Öğrenci vs Ziyaretçi vs Görevli */}
+            <div className="lg:col-span-12 bg-white border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-bold text-slate-800">Düzenlenen Kart Kategorisi:</span>
+                <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => setTemplateStudioCardType('student')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer flex items-center gap-1.5 ${
+                      templateStudioCardType === 'student'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-slate-700 hover:text-slate-900'
+                    }`}
+                  >
+                    <IdCard className="w-3.5 h-3.5" />
+                    Öğrenci Kimliği
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTemplateStudioCardType('visitor');
+                      setEditingSide('front');
+                      if (selectedFrontField === 'photo') setSelectedFrontField('fullName');
+                    }}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer flex items-center gap-1.5 ${
+                      templateStudioCardType === 'visitor'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-slate-700 hover:text-slate-900'
+                    }`}
+                  >
+                    <Shield className="w-3.5 h-3.5" />
+                    Ziyaretçi Kartı (Tek Yüz)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTemplateStudioCardType('staff');
+                      setEditingSide('front');
+                      if (selectedFrontField === 'photo') setSelectedFrontField('fullName');
+                    }}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer flex items-center gap-1.5 ${
+                      templateStudioCardType === 'staff'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'text-slate-700 hover:text-slate-900'
+                    }`}
+                  >
+                    <UserCheck className="w-3.5 h-3.5" />
+                    Görevli Kartı (Tek Yüz)
+                  </button>
+                </div>
+              </div>
+
+              {templateStudioCardType !== 'student' ? (
+                <span className="px-3 py-1 text-xs font-semibold rounded-full bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-1.5">
+                  ⚡ Tek Yüzlü & Fotoğrafsız Yaka Kartı Düzenleniyor
+                </span>
+              ) : (
+                <span className="text-xs text-slate-500 font-medium">
+                  {activeTemplate.enableBackSide ? 'Çift Yüzlü (Ön + Arka) Baskı Aktif' : 'Tek Yüzlü Baskı Aktif'}
+                </span>
+              )}
+            </div>
+
             {/* Left 7 Columns: Interactive Drag-and-Drop Canvas for Front or Back */}
             <div className="lg:col-span-7 space-y-4">
               <div className="bg-white border border-slate-200 rounded-xl p-6">
                 {/* Top Controls: Optional Back Side Toggle + Side Switcher */}
-                <div className="flex flex-wrap items-center justify-between gap-3 pb-4 mb-4 border-b border-slate-200">
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
-                      <button
-                        type="button"
-                        onClick={() => setEditingSide('front')}
-                        className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors whitespace-nowrap cursor-pointer ${
-                          editingSide === 'front'
-                            ? 'bg-white text-slate-900 shadow-xs'
-                            : 'text-slate-600 hover:text-slate-900'
-                        }`}
-                      >
-                        Ön Yüz Tasarımı
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!activeTemplate.enableBackSide) {
-                            handleToggleBackSide(true);
-                          } else {
-                            setEditingSide('back');
-                          }
-                        }}
-                        className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors whitespace-nowrap cursor-pointer ${
-                          editingSide === 'back'
-                            ? 'bg-blue-600 text-white shadow-xs'
-                            : 'text-slate-600 hover:text-slate-900'
-                        }`}
-                      >
-                        Arka Yüz Tasarımı {activeTemplate.enableBackSide ? '(Aktif)' : '(Opsiyonel)'}
-                      </button>
+                {templateStudioCardType === 'student' ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 pb-4 mb-4 border-b border-slate-200">
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+                        <button
+                          type="button"
+                          onClick={() => setEditingSide('front')}
+                          className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors whitespace-nowrap cursor-pointer ${
+                            editingSide === 'front'
+                              ? 'bg-white text-slate-900 shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Ön Yüz Tasarımı
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!activeTemplate.enableBackSide) {
+                              handleToggleBackSide(true);
+                            } else {
+                              setEditingSide('back');
+                            }
+                          }}
+                          className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors whitespace-nowrap cursor-pointer ${
+                            editingSide === 'back'
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Arka Yüz Tasarımı {activeTemplate.enableBackSide ? '(Aktif)' : '(Opsiyonel)'}
+                        </button>
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Enable / Disable Back Side Checkbox */}
-                  <label className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={activeTemplate.enableBackSide}
-                      onChange={(e) => handleToggleBackSide(e.target.checked)}
-                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-600"
-                    />
-                    <span>Arka Yüzü PDF Baskıya Dahil Et (İsteğe Bağlı)</span>
-                  </label>
-                </div>
+                    {/* Enable / Disable Back Side Checkbox */}
+                    <label className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={activeTemplate.enableBackSide}
+                        onChange={(e) => handleToggleBackSide(e.target.checked)}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-600"
+                      />
+                      <span>Arka Yüzü PDF Baskıya Dahil Et (İsteğe Bağlı)</span>
+                    </label>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-3 pb-4 mb-4 border-b border-slate-200">
+                    <div className="flex items-center gap-2">
+                      <span className="px-3.5 py-1.5 text-xs font-bold rounded-md bg-white border border-slate-200 text-slate-900 shadow-xs">
+                        Ön Yüz Tasarımı (Tek Yüz)
+                      </span>
+                    </div>
+                    <span className="text-xs text-slate-500 font-medium">
+                      * Ziyaretçi ve Görevli kartları tek yüzlü olarak basılır (Arka yüz bulunmaz).
+                    </span>
+                  </div>
+                )}
 
                 <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                   <div>
                     <span className="text-xs font-semibold text-blue-700">
                       {editingSide === 'front'
-                        ? 'Ön Yüz İnteraktif Şablon Tuvali'
+                        ? 'İnteraktif Şablon Tuvali'
                         : 'Arka Yüz İnteraktif Şablon Tuvali (İmza & Okul İletişim)'}
                     </span>
                     <h2 className="text-base font-bold text-slate-900">
                       {editingSide === 'front'
-                        ? 'Ön Yüz Bilgilerini Fareyle Sürükleyerek Yerleştirin'
+                        ? 'Kart Bilgilerini Fareyle Sürükleyerek Yerleştirin'
                         : 'Arka Yüz Alanlarını (Öğrenci İmzası, Okul İletişim, Müdür Onayı) Sürükleyin'}
                     </h2>
                   </div>
@@ -1927,17 +2642,23 @@ export default function App() {
                       <>
                         <button
                           type="button"
-                          onClick={() => customTemplateBgInputRef.current?.click()}
+                          onClick={() => {
+                            if (templateStudioCardType !== 'student') {
+                              visitorBgInputRef.current?.click();
+                            } else {
+                              customTemplateBgInputRef.current?.click();
+                            }
+                          }}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors whitespace-nowrap cursor-pointer"
                         >
                           <Upload className="w-3.5 h-3.5" />
-                          Ön Yüz Özel Şablon Yükle
+                          Özel Şablon Yükle
                         </button>
-                        {activeTemplate.customBackgroundUrl && (
+                        {currentStudioTemplate.customBackgroundUrl && (
                           <button
                             type="button"
                             onClick={() =>
-                              updateActiveTemplate((prev) => ({
+                              updateStudioTemplate((prev) => ({
                                 ...prev,
                                 customBackgroundUrl: undefined,
                               }))
@@ -1975,22 +2696,22 @@ export default function App() {
 
                 <div className="flex flex-col items-center justify-center bg-slate-100 border border-slate-200/80 rounded-xl p-6 min-h-[380px]">
                   <CardCanvasPreview
-                    student={previewStudent}
-                    template={activeTemplate}
-                    side={editingSide}
+                    student={previewStudentForStudio}
+                    template={currentStudioTemplate}
+                    side={templateStudioCardType !== 'student' ? 'front' : editingSide}
                     selectedField={activeSelectedFieldKey}
                     interactive={true}
                     onSelectField={(field) => {
-                      if (editingSide === 'back') {
+                      if (editingSide === 'back' && currentStudioTemplate.enableBackSide) {
                         setSelectedBackField(field as BackFieldKey);
                       } else {
                         setSelectedFrontField(field as FrontFieldKey);
                       }
                     }}
                     onMoveField={(field, newX, newY) => {
-                      if (editingSide === 'back') {
+                      if (editingSide === 'back' && currentStudioTemplate.enableBackSide) {
                         const bf = field as BackFieldKey;
-                        updateActiveTemplate((prev) => ({
+                        updateStudioTemplate((prev) => ({
                           ...prev,
                           backFields: {
                             ...prev.backFields,
@@ -2003,7 +2724,7 @@ export default function App() {
                         }));
                       } else {
                         const ff = field as FrontFieldKey;
-                        updateActiveTemplate((prev) => {
+                        updateStudioTemplate((prev) => {
                           const existingField = prev.fields[ff];
                           const deltaX = newX - existingField.x;
                           const nextSecondLineX =
@@ -2034,13 +2755,15 @@ export default function App() {
                       }
                     }}
                     className={
-                      activeTemplate.orientation === 'landscape'
+                      currentStudioTemplate.orientation === 'landscape'
                         ? 'w-full max-w-[560px]'
                         : 'w-full max-w-[340px]'
                     }
                   />
                   <p className="text-xs text-slate-500 mt-3 text-center">
-                    {editingSide === 'front'
+                    {templateStudioCardType !== 'student'
+                      ? 'Metin ve barkod alanlarına tıklayıp fareyle sürükleyerek yerleşimini değiştirebilirsiniz. Fotoğraf alanı kapalıdır.'
+                      : editingSide === 'front'
                       ? 'Ön Yüz: Fotoğraf, Adı Soyadı, Okul No, Sınıf veya 2 Satırlı Okul İsmi alanlarına tıklayıp sürükleyebilirsiniz.'
                       : 'Arka Yüz: Öğrenci İmzası kutusu, Okul Adresi, Telefon, Bulunması Halinde Uyarı metni ve Müdür Onay kutusunu sürükleyerek hizalayabilirsiniz.'}
                   </p>
@@ -2056,13 +2779,13 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() =>
-                          updateActiveTemplate((p) => ({
+                          updateStudioTemplate((p) => ({
                             ...p,
                             orientation: 'landscape',
                           }))
                         }
                         className={`flex-1 py-1.5 text-xs font-semibold rounded-md ${
-                          activeTemplate.orientation === 'landscape'
+                          currentStudioTemplate.orientation === 'landscape'
                             ? 'bg-white text-slate-900 shadow-xs'
                             : 'text-slate-600'
                         }`}
@@ -2072,13 +2795,13 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() =>
-                          updateActiveTemplate((p) => ({
+                          updateStudioTemplate((p) => ({
                             ...p,
                             orientation: 'portrait',
                           }))
                         }
                         className={`flex-1 py-1.5 text-xs font-semibold rounded-md ${
-                          activeTemplate.orientation === 'portrait'
+                          currentStudioTemplate.orientation === 'portrait'
                             ? 'bg-white text-slate-900 shadow-xs'
                             : 'text-slate-600'
                         }`}
@@ -2095,9 +2818,9 @@ export default function App() {
                     <div className="flex items-center gap-2">
                       <input
                         type="color"
-                        value={activeTemplate.primaryColor}
+                        value={currentStudioTemplate.primaryColor}
                         onChange={(e) =>
-                          updateActiveTemplate((p) => ({
+                          updateStudioTemplate((p) => ({
                             ...p,
                             primaryColor: e.target.value,
                           }))
@@ -2107,9 +2830,9 @@ export default function App() {
                       />
                       <input
                         type="color"
-                        value={activeTemplate.accentColor}
+                        value={currentStudioTemplate.accentColor}
                         onChange={(e) =>
-                          updateActiveTemplate((p) => ({
+                          updateStudioTemplate((p) => ({
                             ...p,
                             accentColor: e.target.value,
                           }))
@@ -2119,16 +2842,22 @@ export default function App() {
                       />
                       <button
                         type="button"
-                        onClick={() => schoolLogoInputRef.current?.click()}
+                        onClick={() => {
+                          if (templateStudioCardType !== 'student') {
+                            visitorLogoInputRef.current?.click();
+                          } else {
+                            schoolLogoInputRef.current?.click();
+                          }
+                        }}
                         className="flex-1 px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg whitespace-nowrap cursor-pointer"
                       >
-                        {activeTemplate.schoolLogoUrl ? 'Logoyu Değiştir' : '+ Okul Logosu (PNG)'}
+                        {currentStudioTemplate.schoolLogoUrl ? 'Logoyu Değiştir' : '+ Okul Logosu (PNG)'}
                       </button>
-                      {activeTemplate.schoolLogoUrl && (
+                      {currentStudioTemplate.schoolLogoUrl && (
                         <button
                           type="button"
                           onClick={() =>
-                            updateActiveTemplate((p) => ({
+                            updateStudioTemplate((p) => ({
                               ...p,
                               schoolLogoUrl: undefined,
                             }))
@@ -2142,7 +2871,7 @@ export default function App() {
                     </div>
 
                     {/* Logo Clarity / Contrast Badge Controls */}
-                    {activeTemplate.schoolLogoUrl && (
+                    {currentStudioTemplate.schoolLogoUrl && (
                       <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-lg space-y-2.5 text-xs">
                         <div className="flex items-center justify-between">
                           <span className="font-semibold text-blue-900">
@@ -2152,13 +2881,13 @@ export default function App() {
                             <button
                               type="button"
                               onClick={() =>
-                                updateActiveTemplate((p) => ({
+                                updateStudioTemplate((p) => ({
                                   ...p,
                                   schoolLogoStyle: 'badge',
                                 }))
                               }
                               className={`px-2 py-0.5 rounded font-semibold transition-colors cursor-pointer ${
-                                (activeTemplate.schoolLogoStyle ?? 'badge') === 'badge'
+                                (currentStudioTemplate.schoolLogoStyle ?? 'badge') === 'badge'
                                   ? 'bg-blue-600 text-white'
                                   : 'text-slate-600 hover:text-slate-900'
                               }`}
@@ -2169,13 +2898,13 @@ export default function App() {
                             <button
                               type="button"
                               onClick={() =>
-                                updateActiveTemplate((p) => ({
+                                updateStudioTemplate((p) => ({
                                   ...p,
                                   schoolLogoStyle: 'transparent',
                                 }))
                               }
                               className={`px-2 py-0.5 rounded font-semibold transition-colors cursor-pointer ${
-                                activeTemplate.schoolLogoStyle === 'transparent'
+                                currentStudioTemplate.schoolLogoStyle === 'transparent'
                                   ? 'bg-blue-600 text-white'
                                   : 'text-slate-600 hover:text-slate-900'
                               }`}
@@ -2194,9 +2923,9 @@ export default function App() {
                               min={75}
                               max={140}
                               step={5}
-                              value={activeTemplate.schoolLogoScale || 100}
+                              value={currentStudioTemplate.schoolLogoScale || 100}
                               onChange={(e) =>
-                                updateActiveTemplate((p) => ({
+                                updateStudioTemplate((p) => ({
                                   ...p,
                                   schoolLogoScale: parseInt(e.target.value, 10),
                                 }))
@@ -2204,7 +2933,7 @@ export default function App() {
                               className="w-24 accent-blue-600"
                             />
                             <span className="font-mono text-blue-700 font-bold w-10 text-right">
-                              %{activeTemplate.schoolLogoScale || 100}
+                              %{currentStudioTemplate.schoolLogoScale || 100}
                             </span>
                           </div>
                         </div>
@@ -2218,13 +2947,13 @@ export default function App() {
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                      Ön Yüz Kart Başlığı
+                      Kart Başlığı
                     </label>
                     <input
                       type="text"
-                      value={activeTemplate.cardTitleText}
+                      value={currentStudioTemplate.cardTitleText}
                       onChange={(e) =>
-                        updateActiveTemplate((p) => ({
+                        updateStudioTemplate((p) => ({
                           ...p,
                           cardTitleText: e.target.value,
                         }))
@@ -2248,7 +2977,7 @@ export default function App() {
                     </span>
                     <h3 className="text-base font-bold text-slate-900">
                       {editingSide === 'front'
-                        ? 'Ön Yüzdeki Alanları Seçin ve Düzenleyin'
+                        ? 'Karttaki Alanları Seçin ve Düzenleyin'
                         : 'Arka Yüz Alanlarını (İmza, İletişim, Uyarı) Düzenleyin'}
                     </h3>
                   </div>
@@ -2257,21 +2986,26 @@ export default function App() {
                 {/* Field Selector Buttons for Active Side */}
                 {editingSide === 'front' ? (
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                    {(Object.keys(activeTemplate.fields) as FrontFieldKey[]).map((key) => {
-                      const f = activeTemplate.fields[key];
+                    {(Object.keys(currentStudioTemplate.fields) as FrontFieldKey[]).map((key) => {
+                      const f = currentStudioTemplate.fields[key];
                       const isSel = selectedFrontField === key;
+                      const isPhotoDisabled = templateStudioCardType !== 'student' && key === 'photo';
                       return (
                         <button
                           key={key}
                           type="button"
+                          disabled={isPhotoDisabled}
                           onClick={() => setSelectedFrontField(key)}
                           className={`px-2.5 py-2 text-xs font-semibold rounded-lg border text-left transition-colors truncate cursor-pointer ${
-                            isSel
+                            isPhotoDisabled
+                              ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400 border-slate-200'
+                              : isSel
                               ? 'bg-blue-600 text-white border-blue-600'
                               : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                           }`}
+                          title={isPhotoDisabled ? 'Fotoğraf bu kart türünde kapalıdır' : f.label}
                         >
-                          {f.label}
+                          {isPhotoDisabled ? 'Fotoğraf (Yok)' : f.label}
                         </button>
                       );
                     })}
@@ -3095,22 +3829,30 @@ export default function App() {
             {/* Header Banner */}
             <div className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <span className="text-xs font-semibold text-blue-700">
-                  Hızlı Özel Kart Üreticisi
-                </span>
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-xs font-semibold text-blue-700">
+                    Özel Yaka Kartı Üreticisi
+                  </span>
+                  <span className="px-2.5 py-0.5 text-[11px] font-bold rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                    ⚡ Tek Yüzlü & Fotoğrafsız Yaka Kartı
+                  </span>
+                </div>
                 <h2 className="text-lg font-bold text-slate-900">
-                  Ziyaretçi ve Görevli Kimlik Kartları
+                  {visitorMode === 'visitor' ? '🛡️ Ziyaretçi Kimlik Kartları' : '👤 Görevli Kimlik Kartları'}
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Mevcut okul şablonunuzun (kurumsal renkler, logo, 2 satırlı okul adı ve filigran) aynısını kullanarak istediğiniz sayıda Ziyaretçi ve Görevli Kartı üretin.
+                  Alanları, renkleri, başlığı ve yazıları dilediğiniz gibi düzenleyin. Fotoğraf alanı kapalıdır ve kartlar arka yüz olmadan tek yönlü basılır.
                 </p>
               </div>
 
               {/* Mode Toggle: Ziyaretçi vs Görevli */}
-              <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+              <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-lg">
                 <button
                   type="button"
-                  onClick={() => setVisitorMode('visitor')}
+                  onClick={() => {
+                    setVisitorMode('visitor');
+                    setVisitorPreviewIdx(0);
+                  }}
                   className={`px-4 py-2 text-xs font-bold rounded-md transition-colors cursor-pointer flex items-center gap-1.5 ${
                     visitorMode === 'visitor'
                       ? 'bg-blue-600 text-white shadow-xs'
@@ -3122,7 +3864,10 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setVisitorMode('staff')}
+                  onClick={() => {
+                    setVisitorMode('staff');
+                    setVisitorPreviewIdx(0);
+                  }}
                   className={`px-4 py-2 text-xs font-bold rounded-md transition-colors cursor-pointer flex items-center gap-1.5 ${
                     visitorMode === 'staff'
                       ? 'bg-emerald-600 text-white shadow-xs'
@@ -3135,275 +3880,827 @@ export default function App() {
               </div>
             </div>
 
-            {/* Split Grid: Left Form Controls & Quick Generators | Right Live Canvas Preview */}
+            {/* Split Grid: Left Form Controls & Customization | Right Live Canvas Preview */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               {/* Left 6 Columns: Generator Settings & Customization */}
-              <div className="lg:col-span-6 space-y-5">
-                <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-900">
-                        {visitorMode === 'visitor'
-                          ? 'Ziyaretçi Kartı Yapılandırması'
-                          : 'Görevli Kartı Yapılandırması'}
-                      </h3>
-                      <p className="text-xs text-slate-500">
-                        {visitorMode === 'visitor'
-                          ? 'Nizamiye ve güvenlik girişlerinde kullanılacak misafir kartları'
-                          : 'Sınav, etkinlik, nöbetçi öğretmen ve kurum personeli kartları'}
-                      </p>
-                    </div>
-                    <span className="px-2.5 py-1 text-xs font-mono font-bold rounded bg-slate-100 text-slate-700">
-                      Toplam: {visitorMode === 'visitor' ? visitorCardCount : staffCardCount} Kart
-                    </span>
-                  </div>
+              <div className="lg:col-span-6 space-y-4">
+                {/* Sub-tabs for Visitor/Staff Customization */}
+                <div className="bg-white border border-slate-200 rounded-xl p-1.5 flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setVisitorSubTab('info')}
+                    className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                      visitorSubTab === 'info'
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Type className="w-3.5 h-3.5" />
+                    Kart Bilgileri & Sayı
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setVisitorSubTab('colors')}
+                    className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                      visitorSubTab === 'colors'
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Palette className="w-3.5 h-3.5" />
+                    Renkler & Tasarım
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setVisitorSubTab('fields')}
+                    className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                      visitorSubTab === 'fields'
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Sliders className="w-3.5 h-3.5" />
+                    Alan Yerleşimi & Fontlar
+                  </button>
+                </div>
 
-                  {/* Card Quantity Control (Sayısını kendisi belirleyebilir!) */}
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                      Üretilecek Kart Sayısı (Adet):
-                    </label>
-                    <div className="flex items-center gap-3">
+                {/* Sub-Tab 1: Kart Bilgileri & Sayı */}
+                {visitorSubTab === 'info' && (
+                  <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900">
+                          {visitorMode === 'visitor' ? 'Ziyaretçi Kartı Bilgileri' : 'Görevli Kartı Bilgileri'}
+                        </h3>
+                        <p className="text-xs text-slate-500">
+                          Üretilecek adet, kart başlığı, numara şablonu ve okul adını belirleyin.
+                        </p>
+                      </div>
+                      <span className="px-2.5 py-1 text-xs font-mono font-bold rounded bg-slate-100 text-slate-700">
+                        {visitorMode === 'visitor' ? visitorCardCount : staffCardCount} Kart
+                      </span>
+                    </div>
+
+                    {/* Card Quantity Control */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                        Üretilecek Kart Sayısı (Adet):
+                      </label>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="number"
+                          min={1}
+                          max={200}
+                          value={visitorMode === 'visitor' ? visitorCardCount : staffCardCount}
+                          onChange={(e) => {
+                            const val = Math.max(1, Math.min(200, parseInt(e.target.value, 10) || 1));
+                            if (visitorMode === 'visitor') setVisitorCardCount(val);
+                            else setStaffCardCount(val);
+                          }}
+                          className="w-28 px-3 py-2 text-sm font-bold text-center border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600 bg-white"
+                        />
+                        {/* Quick Count Presets */}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {[5, 10, 15, 20, 30, 50, 100].map((preset) => (
+                            <button
+                              key={preset}
+                              type="button"
+                              onClick={() => {
+                                if (visitorMode === 'visitor') setVisitorCardCount(preset);
+                                else setStaffCardCount(preset);
+                              }}
+                              className={`px-2.5 py-1 text-xs font-semibold rounded-md border transition-colors cursor-pointer ${
+                                (visitorMode === 'visitor' ? visitorCardCount : staffCardCount) === preset
+                                  ? 'bg-slate-900 text-white border-slate-900'
+                                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                              }`}
+                            >
+                              {preset} Adet
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Prefix & Card Title */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Numara Ön-Kodu (Prefix):
+                        </label>
+                        <input
+                          type="text"
+                          value={visitorMode === 'visitor' ? visitorCardPrefix : staffCardPrefix}
+                          onChange={(e) => {
+                            const val = e.target.value.toUpperCase();
+                            if (visitorMode === 'visitor') setVisitorCardPrefix(val);
+                            else setStaffCardPrefix(val);
+                          }}
+                          placeholder={visitorMode === 'visitor' ? 'ZYR' : 'GRV'}
+                          className="w-full px-3 py-1.5 text-xs font-mono font-bold bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                        />
+                        <span className="text-[10px] text-slate-400 mt-0.5 block">
+                          Örn: {visitorMode === 'visitor' ? visitorCardPrefix : staffCardPrefix}-001 ..
+                        </span>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Kart Üzerindeki Başlık:
+                        </label>
+                        <input
+                          type="text"
+                          value={visitorMode === 'visitor' ? visitorCardTitle : staffCardTitle}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (visitorMode === 'visitor') {
+                              setVisitorCardTitle(val);
+                              setVisitorTemplate((p) => ({ ...p, cardTitleText: val }));
+                            } else {
+                              setStaffCardTitle(val);
+                              setStaffTemplate((p) => ({ ...p, cardTitleText: val }));
+                            }
+                          }}
+                          placeholder={visitorMode === 'visitor' ? 'ZİYARETÇİ KARTI' : 'GÖREVLİ KARTI'}
+                          className="w-full px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Name Pattern (İsim / Unvan Şablonu) */}
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        İsim / Unvan Metin Şablonu:
+                      </label>
                       <input
-                        type="number"
-                        min={1}
-                        max={200}
-                        value={visitorMode === 'visitor' ? visitorCardCount : staffCardCount}
+                        type="text"
+                        value={visitorMode === 'visitor' ? visitorNamePattern : staffNamePattern}
                         onChange={(e) => {
-                          const val = Math.max(1, Math.min(200, parseInt(e.target.value, 10) || 1));
-                          if (visitorMode === 'visitor') setVisitorCardCount(val);
-                          else setStaffCardCount(val);
+                          if (visitorMode === 'visitor') setVisitorNamePattern(e.target.value);
+                          else setStaffNamePattern(e.target.value);
                         }}
-                        className="w-28 px-3 py-2 text-sm font-bold text-center border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600 bg-white"
+                        placeholder="Örn: ZİYARETÇİ - {no} veya GÖREVLİ - {no}"
+                        className="w-full px-3 py-1.5 text-xs font-mono bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
                       />
-                      {/* Quick Count Presets */}
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {[5, 10, 15, 20, 30, 50].map((preset) => (
+                      <span className="text-[10px] text-slate-500 mt-1 block">
+                        Kullanabileceğiniz etiketler: <code className="bg-slate-100 px-1 rounded">&#123;no&#125;</code> (01, 02..), <code className="bg-slate-100 px-1 rounded">&#123;num&#125;</code> (1, 2..)
+                      </span>
+                    </div>
+
+                    {/* Field / Department (Alanı / Görevi) */}
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Alanı / Görevi (Kartın &apos;Alanı&apos; Bölümünde Yazar):
+                      </label>
+                      <input
+                        type="text"
+                        value={visitorMode === 'visitor' ? visitorCardSubtitle : staffCardSubtitle}
+                        onChange={(e) => {
+                          if (visitorMode === 'visitor') setVisitorCardSubtitle(e.target.value);
+                          else setStaffCardSubtitle(e.target.value);
+                        }}
+                        placeholder="Örn: Sınav Salon Başkanı / Güvenlik Kontrolü"
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                      />
+                      {/* Quick Suggestions */}
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                        {(visitorMode === 'visitor'
+                          ? [
+                              'Günübirlik Giriş / Güvenlik Kontrolü',
+                              'Misafir Girişi',
+                              'Veli Görüşme Kartı',
+                              'Yetkili Ziyaretçi',
+                            ]
+                          : [
+                              'Sınav & Etkinlik Görevlisi',
+                              'Sınav Salon Başkanı',
+                              'Gözetmen / Nöbetçi Öğretmen',
+                              'Kurum Personeli',
+                            ]
+                        ).map((preset) => (
                           <button
                             key={preset}
                             type="button"
                             onClick={() => {
-                              if (visitorMode === 'visitor') setVisitorCardCount(preset);
-                              else setStaffCardCount(preset);
+                              if (visitorMode === 'visitor') setVisitorCardSubtitle(preset);
+                              else setStaffCardSubtitle(preset);
                             }}
-                            className={`px-2.5 py-1 text-xs font-semibold rounded-md border transition-colors cursor-pointer ${
-                              (visitorMode === 'visitor' ? visitorCardCount : staffCardCount) === preset
-                                ? 'bg-slate-900 text-white border-slate-900'
-                                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                            }`}
+                            className="px-2 py-0.5 text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors cursor-pointer"
                           >
-                            {preset} Adet
+                            {preset}
                           </button>
                         ))}
                       </div>
                     </div>
-                  </div>
 
-                  {/* Card Prefix & Numbering */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Numara Ön-Kodu (Prefix):
+                    {/* School Name Lines on this Card */}
+                    <div className="pt-2 border-t border-slate-200 space-y-2">
+                      <label className="block text-xs font-bold text-slate-700">
+                        Kart Üzerindeki Kurum / Okul İsmi (2 Satır):
                       </label>
                       <input
                         type="text"
-                        value={visitorMode === 'visitor' ? visitorCardPrefix : staffCardPrefix}
+                        value={currentVisitorOrStaffTemplate.defaultSchoolName?.split('\n')[0] || ''}
                         onChange={(e) => {
-                          const val = e.target.value.toUpperCase();
-                          if (visitorMode === 'visitor') setVisitorCardPrefix(val);
-                          else setStaffCardPrefix(val);
+                          const lines = (currentVisitorOrStaffTemplate.defaultSchoolName || '').split('\n');
+                          lines[0] = e.target.value;
+                          updateCurrentVisitorOrStaffTemplate((p) => ({
+                            ...p,
+                            defaultSchoolName: lines.join('\n'),
+                          }));
                         }}
-                        placeholder={visitorMode === 'visitor' ? 'ZYR' : 'GRV'}
-                        className="w-full px-3 py-1.5 text-xs font-mono font-bold bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                        placeholder="1. Satır: T.C. MİLLÎ EĞİTİM BAKANLIĞI"
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg"
                       />
-                      <span className="text-[10px] text-slate-400 mt-0.5 block">
-                        Örn: {visitorMode === 'visitor' ? visitorCardPrefix : staffCardPrefix}-001, {visitorMode === 'visitor' ? visitorCardPrefix : staffCardPrefix}-002
-                      </span>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Kart Başlığı:
-                      </label>
                       <input
                         type="text"
-                        value={visitorMode === 'visitor' ? visitorCardTitle : staffCardTitle}
+                        value={currentVisitorOrStaffTemplate.defaultSchoolName?.split('\n')[1] || ''}
                         onChange={(e) => {
-                          if (visitorMode === 'visitor') setVisitorCardTitle(e.target.value);
-                          else setStaffCardTitle(e.target.value);
+                          const lines = (currentVisitorOrStaffTemplate.defaultSchoolName || '').split('\n');
+                          lines[1] = e.target.value;
+                          updateCurrentVisitorOrStaffTemplate((p) => ({
+                            ...p,
+                            defaultSchoolName: lines.join('\n'),
+                          }));
                         }}
-                        placeholder={visitorMode === 'visitor' ? 'ZİYARETÇİ KARTI' : 'GÖREVLİ KARTI'}
-                        className="w-full px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                        placeholder="2. Satır: Atatürk Fen Lisesi / Kurum Adı"
+                        className="w-full px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg"
                       />
                     </div>
                   </div>
+                )}
 
-                  {/* Field / Department (Alanı) & Subtitle */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Alanı / Görevi (Kartın &apos;Alanı&apos; Bölümünde Yazar):
-                    </label>
-                    <input
-                      type="text"
-                      value={visitorMode === 'visitor' ? visitorCardSubtitle : staffCardSubtitle}
-                      onChange={(e) => {
-                        if (visitorMode === 'visitor') setVisitorCardSubtitle(e.target.value);
-                        else setStaffCardSubtitle(e.target.value);
-                      }}
-                      placeholder="Örn: Sınav Salon Başkanı / Güvenlik Kontrolü"
-                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
-                    />
-                    {/* Quick Suggestions */}
-                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                      {(visitorMode === 'visitor'
-                        ? [
-                            'Günübirlik Giriş / Güvenlik Kontrolü',
-                            'Misafir Girişi',
-                            'Veli Görüşme Kartı',
-                            'Yetkili Ziyaretçi',
-                          ]
-                        : [
-                            'Sınav & Etkinlik Görevlisi',
-                            'Sınav Salon Başkanı',
-                            'Gözetmen / Nöbetçi Öğretmen',
-                            'Kurum Personeli',
-                          ]
-                      ).map((preset) => (
+                {/* Sub-Tab 2: Renkler & Tasarım */}
+                {visitorSubTab === 'colors' && (
+                  <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900">
+                          Renkler, Logo ve Kart Görünümü
+                        </h3>
+                        <p className="text-xs text-slate-500">
+                          Kurumsal tema renklerini, yönünü ve logonuzu belirleyin.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Orientation Selector */}
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                        Kart Yönü (Standart CR80):
+                      </label>
+                      <div className="flex items-center gap-2">
                         <button
-                          key={preset}
                           type="button"
-                          onClick={() => {
-                            if (visitorMode === 'visitor') setVisitorCardSubtitle(preset);
-                            else setStaffCardSubtitle(preset);
-                          }}
-                          className="px-2 py-0.5 text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors cursor-pointer"
+                          onClick={() =>
+                            updateCurrentVisitorOrStaffTemplate((p) => ({
+                              ...p,
+                              orientation: 'landscape',
+                            }))
+                          }
+                          className={`flex-1 py-1.5 text-xs font-semibold rounded-lg border transition-colors cursor-pointer ${
+                            currentVisitorOrStaffTemplate.orientation === 'landscape'
+                              ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                              : 'bg-slate-50 text-slate-700 border-slate-200'
+                          }`}
                         >
-                          {preset}
+                          Yatay (85.6 × 54 mm)
                         </button>
-                      ))}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateCurrentVisitorOrStaffTemplate((p) => ({
+                              ...p,
+                              orientation: 'portrait',
+                            }))
+                          }
+                          className={`flex-1 py-1.5 text-xs font-semibold rounded-lg border transition-colors cursor-pointer ${
+                            currentVisitorOrStaffTemplate.orientation === 'portrait'
+                              ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                              : 'bg-slate-50 text-slate-700 border-slate-200'
+                          }`}
+                        >
+                          Dikey (54 × 85.6 mm)
+                        </button>
+                      </div>
                     </div>
-                  </div>
 
-                  {/* School Name & Template info notice */}
-                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-slate-800">
-                        Kullanılan Okul Şablonu:
-                      </span>
-                      <span className="font-medium text-blue-700">
-                        {activeTemplate.name} ({activeTemplate.orientation === 'landscape' ? 'Yatay' : 'Dikey'})
-                      </span>
+                    {/* Quick Palettes */}
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                        Hızlı Kurumsal Renk Paletleri:
+                      </label>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {[
+                          { name: 'MEB Lacivert', primary: '#1e3a8a', secondary: '#2563eb', accent: '#d97706', bg: '#ffffff' },
+                          { name: 'Güvenlik Mavisi', primary: '#0284c7', secondary: '#38bdf8', accent: '#f59e0b', bg: '#ffffff' },
+                          { name: 'Zümrüt Yeşili', primary: '#065f46', secondary: '#047857', accent: '#d97706', bg: '#ffffff' },
+                          { name: 'Bordo Yetkili', primary: '#991b1b', secondary: '#dc2626', accent: '#fbbf24', bg: '#ffffff' },
+                          { name: 'Antrasit VIP', primary: '#1e293b', secondary: '#334155', accent: '#38bdf8', bg: '#ffffff' },
+                          { name: 'Amber Altın', primary: '#b45309', secondary: '#d97706', accent: '#1e3a8a', bg: '#ffffff' },
+                        ].map((pal) => (
+                          <button
+                            key={pal.name}
+                            type="button"
+                            onClick={() =>
+                              updateCurrentVisitorOrStaffTemplate((p) => ({
+                                ...p,
+                                primaryColor: pal.primary,
+                                secondaryColor: pal.secondary,
+                                accentColor: pal.accent,
+                                backgroundColor: pal.bg,
+                              }))
+                            }
+                            className="p-2 border border-slate-200 rounded-lg hover:border-blue-400 bg-slate-50 text-left transition-colors cursor-pointer flex items-center justify-between"
+                          >
+                            <span className="text-[11px] font-semibold text-slate-800">{pal.name}</span>
+                            <div className="flex items-center gap-0.5">
+                              <span className="w-3 h-3 rounded-full border border-black/10" style={{ backgroundColor: pal.primary }} />
+                              <span className="w-3 h-3 rounded-full border border-black/10" style={{ backgroundColor: pal.accent }} />
+                            </div>
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-600">Okul İsmi:</span>
-                      <span className="text-slate-800 font-medium truncate max-w-[240px]">
-                        {globalSchoolLine1} {globalSchoolLine2}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-600">Arka Yüz (İki Yönlü):</span>
-                      <span className="font-medium">
-                        {activeTemplate.enableBackSide ? 'Aktif (Ön + Arka Birlikte Basılır)' : 'Sadece Ön Yüz'}
-                      </span>
-                    </div>
-                  </div>
 
-                  {/* Primary Action Buttons */}
-                  <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                    <button
-                      type="button"
-                      disabled={isExportingPdf}
-                      onClick={() => handleExportVisitorOrStaffPdf(visitorMode)}
-                      className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold text-white rounded-xl shadow-xs transition-colors cursor-pointer ${
-                        visitorMode === 'visitor'
-                          ? 'bg-blue-600 hover:bg-blue-700'
-                          : 'bg-emerald-600 hover:bg-emerald-700'
-                      }`}
-                    >
-                      <Download className="w-4 h-4" />
-                      {visitorMode === 'visitor'
-                        ? `Ziyaretçi Kartlarını PDF İndir (${visitorCardCount} Adet)`
-                        : `Görevli Kartlarını PDF İndir (${staffCardCount} Adet)`}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleAppendVisitorCardsToStudents(visitorMode)}
-                      className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer whitespace-nowrap"
-                      title="Bu kartları ana öğrenci listesine aktararak tüm kartlarla birlikte tek A4 çıktısında basabilirsiniz"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      Ana Listeye Ekle ({visitorMode === 'visitor' ? visitorCardCount : staffCardCount} Kart)
-                    </button>
+                    {/* Detailed Color Pickers */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                          Ana Renk:
+                        </label>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="color"
+                            value={currentVisitorOrStaffTemplate.primaryColor}
+                            onChange={(e) =>
+                              updateCurrentVisitorOrStaffTemplate((p) => ({
+                                ...p,
+                                primaryColor: e.target.value,
+                              }))
+                            }
+                            className="w-8 h-8 rounded border border-slate-200 cursor-pointer"
+                          />
+                          <span className="text-[10px] font-mono">{currentVisitorOrStaffTemplate.primaryColor}</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                          İkincil Renk:
+                        </label>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="color"
+                            value={currentVisitorOrStaffTemplate.secondaryColor || '#2563eb'}
+                            onChange={(e) =>
+                              updateCurrentVisitorOrStaffTemplate((p) => ({
+                                ...p,
+                                secondaryColor: e.target.value,
+                              }))
+                            }
+                            className="w-8 h-8 rounded border border-slate-200 cursor-pointer"
+                          />
+                          <span className="text-[10px] font-mono">{currentVisitorOrStaffTemplate.secondaryColor || '#2563eb'}</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                          Vurgu Rengi:
+                        </label>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="color"
+                            value={currentVisitorOrStaffTemplate.accentColor}
+                            onChange={(e) =>
+                              updateCurrentVisitorOrStaffTemplate((p) => ({
+                                ...p,
+                                accentColor: e.target.value,
+                              }))
+                            }
+                            className="w-8 h-8 rounded border border-slate-200 cursor-pointer"
+                          />
+                          <span className="text-[10px] font-mono">{currentVisitorOrStaffTemplate.accentColor}</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                          Arka Plan:
+                        </label>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="color"
+                            value={currentVisitorOrStaffTemplate.backgroundColor || '#ffffff'}
+                            onChange={(e) =>
+                              updateCurrentVisitorOrStaffTemplate((p) => ({
+                                ...p,
+                                backgroundColor: e.target.value,
+                              }))
+                            }
+                            className="w-8 h-8 rounded border border-slate-200 cursor-pointer"
+                          />
+                          <span className="text-[10px] font-mono">{currentVisitorOrStaffTemplate.backgroundColor || '#ffffff'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Logo & Background Uploads */}
+                    <div className="pt-3 border-t border-slate-200 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-slate-800">Kurumsal Logo (PNG):</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => visitorLogoInputRef.current?.click()}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg cursor-pointer"
+                          >
+                            <Upload className="w-3.5 h-3.5" />
+                            {currentVisitorOrStaffTemplate.schoolLogoUrl ? 'Logoyu Değiştir' : '+ Logo Yükle'}
+                          </button>
+                          {currentVisitorOrStaffTemplate.schoolLogoUrl && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateCurrentVisitorOrStaffTemplate((p) => ({
+                                  ...p,
+                                  schoolLogoUrl: undefined,
+                                }))
+                              }
+                              className="px-2 py-1.5 text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg"
+                            >
+                              Kaldır
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Custom Template Background */}
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-slate-800">Özel Hazır Kart Arka Plan Görseli:</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => visitorBgInputRef.current?.click()}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg cursor-pointer"
+                          >
+                            <Upload className="w-3.5 h-3.5" />
+                            {currentVisitorOrStaffTemplate.customBackgroundUrl ? 'Görseli Değiştir' : '+ Arka Plan Görseli'}
+                          </button>
+                          {currentVisitorOrStaffTemplate.customBackgroundUrl && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateCurrentVisitorOrStaffTemplate((p) => ({
+                                  ...p,
+                                  customBackgroundUrl: undefined,
+                                }))
+                              }
+                              className="px-2 py-1.5 text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg"
+                            >
+                              Kaldır
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
+                )}
+
+                {/* Sub-Tab 3: Alan Yerleşimi & Fontlar */}
+                {visitorSubTab === 'fields' && (
+                  <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900">
+                          Alan Konumları, Fontlar ve Hizalama
+                        </h3>
+                        <p className="text-xs text-slate-500">
+                          Karttaki tüm alanların boyutunu, rengini ve koordinatlarını ayarlayın.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const def = visitorMode === 'visitor' ? DEFAULT_VISITOR_TEMPLATE : DEFAULT_STAFF_TEMPLATE;
+                          updateCurrentVisitorOrStaffTemplate((p) => ({
+                            ...p,
+                            fields: { ...def.fields },
+                          }));
+                        }}
+                        className="text-[11px] font-semibold text-blue-600 hover:underline cursor-pointer"
+                      >
+                        Yerleşimi Sıfırla
+                      </button>
+                    </div>
+
+                    {/* Field Selector Buttons */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                        Düzenlenecek Alanı Seçin:
+                      </label>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                        {[
+                          { key: 'schoolName' as FrontFieldKey, label: 'Okul İsmi' },
+                          { key: 'cardTitle' as FrontFieldKey, label: 'Kart Başlığı' },
+                          { key: 'studentNumber' as FrontFieldKey, label: 'Kart Numarası' },
+                          { key: 'fullName' as FrontFieldKey, label: 'İsim / Unvan' },
+                          { key: 'className' as FrontFieldKey, label: 'Alanı / Görevi' },
+                          { key: 'barcode' as FrontFieldKey, label: 'Barkod' },
+                          { key: 'academicYear' as FrontFieldKey, label: 'Geçerlilik' },
+                        ].map((item) => (
+                          <button
+                            key={item.key}
+                            type="button"
+                            onClick={() => setVisitorSelectedField(item.key)}
+                            className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg border text-left truncate transition-colors cursor-pointer ${
+                              visitorSelectedField === item.key
+                                ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                            }`}
+                          >
+                            {item.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Notice about photo */}
+                    <div className="p-2.5 bg-blue-50/70 border border-blue-200 rounded-lg text-xs text-blue-900 flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                      <span>Fotoğraf alanı ziyaretçi ve görevli kartlarında kapalıdır; tüm metinler kart boyunca ferah ve okunaklı yerleşir.</span>
+                    </div>
+
+                    {/* Selected Field Config Box */}
+                    {(() => {
+                      const f = currentVisitorOrStaffTemplate.fields[visitorSelectedField];
+                      if (!f) return null;
+
+                      const updateField = (patch: Partial<FieldPosition>) => {
+                        updateCurrentVisitorOrStaffTemplate((p) => ({
+                          ...p,
+                          fields: {
+                            ...p.fields,
+                            [visitorSelectedField]: {
+                              ...p.fields[visitorSelectedField],
+                              ...patch,
+                            },
+                          },
+                        }));
+                      };
+
+                      return (
+                        <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3 text-xs">
+                          <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                            <span className="font-bold text-slate-900">
+                              Seçili Alan: {f.label}
+                            </span>
+                            <label className="flex items-center gap-1.5 font-semibold text-slate-700 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={f.visible}
+                                onChange={(e) => updateField({ visible: e.target.checked })}
+                                className="rounded border-slate-300 text-blue-600"
+                              />
+                              <span>Karta Yaz</span>
+                            </label>
+                          </div>
+
+                          {/* Coordinates X & Y */}
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <div className="flex justify-between text-slate-600 mb-1">
+                                <span>Yatay Konum (X)</span>
+                                <span className="font-mono font-bold text-blue-700">{f.x}%</span>
+                              </div>
+                              <input
+                                type="range"
+                                min={2}
+                                max={96}
+                                value={f.x}
+                                onChange={(e) => updateField({ x: parseInt(e.target.value, 10) })}
+                                className="w-full accent-blue-600"
+                              />
+                            </div>
+                            <div>
+                              <div className="flex justify-between text-slate-600 mb-1">
+                                <span>Dikey Konum (Y)</span>
+                                <span className="font-mono font-bold text-blue-700">{f.y}%</span>
+                              </div>
+                              <input
+                                type="range"
+                                min={2}
+                                max={96}
+                                value={f.y}
+                                onChange={(e) => updateField({ y: parseInt(e.target.value, 10) })}
+                                className="w-full accent-blue-600"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Font Size & Weight */}
+                          <div className="grid grid-cols-2 gap-3 pt-1">
+                            <div>
+                              <div className="flex justify-between text-slate-600 mb-1">
+                                <span>Font Boyutu</span>
+                                <span className="font-mono font-bold text-blue-700">{f.fontSize}px</span>
+                              </div>
+                              <input
+                                type="range"
+                                min={10}
+                                max={40}
+                                value={f.fontSize}
+                                onChange={(e) => updateField({ fontSize: parseInt(e.target.value, 10) })}
+                                className="w-full accent-blue-600"
+                              />
+                            </div>
+
+                            <div>
+                              <span className="block text-slate-600 mb-1">Metin Kalınlığı</span>
+                              <div className="flex items-center gap-1">
+                                {[
+                                  { val: '400', lbl: 'Normal' },
+                                  { val: '600', lbl: 'Yarı' },
+                                  { val: '700', lbl: 'Kalın' },
+                                ].map((w) => (
+                                  <button
+                                    key={w.val}
+                                    type="button"
+                                    onClick={() => updateField({ fontWeight: w.val as '400' | '600' | '700' })}
+                                    className={`flex-1 py-1 text-xs font-semibold rounded border ${
+                                      f.fontWeight === w.val
+                                        ? 'bg-blue-600 text-white border-blue-600'
+                                        : 'bg-white text-slate-700 border-slate-200'
+                                    }`}
+                                  >
+                                    {w.lbl}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Alignment & Text Color */}
+                          <div className="grid grid-cols-2 gap-3 pt-1">
+                            <div>
+                              <span className="block text-slate-600 mb-1">Metin Hizalama</span>
+                              <div className="flex items-center gap-1">
+                                {(['left', 'center', 'right'] as const).map((al) => (
+                                  <button
+                                    key={al}
+                                    type="button"
+                                    onClick={() => updateField({ align: al })}
+                                    className={`flex-1 py-1 text-xs font-semibold rounded border ${
+                                      f.align === al
+                                        ? 'bg-blue-600 text-white border-blue-600'
+                                        : 'bg-white text-slate-700 border-slate-200'
+                                    }`}
+                                  >
+                                    {al === 'left' ? 'Sol' : al === 'center' ? 'Orta' : 'Sağ'}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div>
+                              <span className="block text-slate-600 mb-1">Yazı Rengi</span>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="color"
+                                  value={f.color}
+                                  onChange={(e) => updateField({ color: e.target.value })}
+                                  className="w-7 h-7 rounded border border-slate-200 cursor-pointer"
+                                />
+                                <span className="font-mono text-[11px] text-slate-700">{f.color}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* Primary Action Buttons */}
+                <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                  <button
+                    type="button"
+                    disabled={isExportingPdf}
+                    onClick={() => handleExportVisitorOrStaffPdf(visitorMode)}
+                    className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold text-white rounded-xl shadow-xs transition-colors cursor-pointer ${
+                      visitorMode === 'visitor'
+                        ? 'bg-blue-600 hover:bg-blue-700'
+                        : 'bg-emerald-600 hover:bg-emerald-700'
+                    }`}
+                  >
+                    <Download className="w-4 h-4" />
+                    {visitorMode === 'visitor'
+                      ? `Ziyaretçi Kartlarını PDF İndir (${visitorCardCount} Adet - Tek Yüz)`
+                      : `Görevli Kartlarını PDF İndir (${staffCardCount} Adet - Tek Yüz)`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAppendVisitorCardsToStudents(visitorMode)}
+                    className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer whitespace-nowrap"
+                    title="Bu kartları ana öğrenci listesine aktararak tüm kartlarla birlikte tek seferde basabilirsiniz"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Ana Listeye Aktar
+                  </button>
                 </div>
               </div>
 
               {/* Right 6 Columns: Live Interactive Canvas Preview */}
               <div className="lg:col-span-6 space-y-4">
                 <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <span className="text-xs font-semibold text-blue-700">
-                        Canlı Önizleme
+                        Canlı İnteraktif Tuval
                       </span>
                       <h3 className="text-sm font-bold text-slate-900">
-                        {visitorMode === 'visitor' ? 'Örnek Ziyaretçi Kartı' : 'Örnek Görevli Kartı'} (1. Kart)
+                        {visitorMode === 'visitor' ? 'Örnek Ziyaretçi Kartı' : 'Örnek Görevli Kartı'} ({visitorPreviewIdx + 1}. Kart)
                       </h3>
                     </div>
 
-                    {/* Front / Back Toggle */}
-                    <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+                    {/* Pagination between generated cards */}
+                    <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-lg text-xs">
                       <button
                         type="button"
-                        onClick={() => setVisitorSide('front')}
-                        className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
-                          visitorSide === 'front'
-                            ? 'bg-white text-slate-900 shadow-xs'
-                            : 'text-slate-600'
-                        }`}
+                        disabled={visitorPreviewIdx <= 0}
+                        onClick={() => setVisitorPreviewIdx((p) => Math.max(0, p - 1))}
+                        className="px-2 py-0.5 rounded font-bold disabled:opacity-30 bg-white text-slate-800 shadow-xs cursor-pointer"
                       >
-                        Ön Yüz
+                        ←
                       </button>
+                      <span className="px-1.5 font-mono font-semibold text-slate-700">
+                        {visitorPreviewIdx + 1} / {visitorMode === 'visitor' ? currentVisitorList.length : currentStaffList.length}
+                      </span>
                       <button
                         type="button"
-                        onClick={() => setVisitorSide('back')}
-                        className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
-                          visitorSide === 'back'
-                            ? 'bg-white text-slate-900 shadow-xs'
-                            : 'text-slate-600'
-                        }`}
+                        disabled={visitorPreviewIdx >= (visitorMode === 'visitor' ? currentVisitorList.length : currentStaffList.length) - 1}
+                        onClick={() =>
+                          setVisitorPreviewIdx((p) =>
+                            Math.min(
+                              (visitorMode === 'visitor' ? currentVisitorList.length : currentStaffList.length) - 1,
+                              p + 1
+                            )
+                          )
+                        }
+                        className="px-2 py-0.5 rounded font-bold disabled:opacity-30 bg-white text-slate-800 shadow-xs cursor-pointer"
                       >
-                        Arka Yüz
+                        →
                       </button>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-center bg-slate-100 border border-slate-200 rounded-xl p-5">
-                    {visitorMode === 'visitor' ? (
-                      <CardCanvasPreview
-                        student={currentVisitorList[0] || previewStudent}
-                        template={activeTemplate}
-                        side={visitorSide}
-                        className="w-full max-w-md shadow-sm"
-                      />
-                    ) : (
-                      <CardCanvasPreview
-                        student={currentStaffList[0] || previewStudent}
-                        template={activeTemplate}
-                        side={visitorSide}
-                        className="w-full max-w-md shadow-sm"
-                      />
-                    )}
+                  {/* Interactive Card Canvas (Strictly single-sided, no back side) */}
+                  <div className="flex flex-col items-center justify-center bg-slate-100 border border-slate-200 rounded-xl p-5 min-h-[340px]">
+                    <CardCanvasPreview
+                      student={
+                        (visitorMode === 'visitor' ? currentVisitorList : currentStaffList)[visitorPreviewIdx] ||
+                        (visitorMode === 'visitor' ? currentVisitorList[0] : currentStaffList[0]) ||
+                        previewStudent
+                      }
+                      template={currentVisitorOrStaffTemplate}
+                      side="front"
+                      selectedField={visitorSelectedField}
+                      interactive={true}
+                      onSelectField={(f) => {
+                        setVisitorSelectedField(f as FrontFieldKey);
+                        setVisitorSubTab('fields');
+                      }}
+                      onMoveField={(f, newX, newY) => {
+                        const ff = f as FrontFieldKey;
+                        updateCurrentVisitorOrStaffTemplate((p) => ({
+                          ...p,
+                          fields: {
+                            ...p.fields,
+                            [ff]: { ...p.fields[ff], x: newX, y: newY },
+                          },
+                        }));
+                      }}
+                      className={
+                        currentVisitorOrStaffTemplate.orientation === 'landscape'
+                          ? 'w-full max-w-[500px]'
+                          : 'w-full max-w-[320px]'
+                      }
+                    />
+                    <p className="text-[11px] text-slate-500 mt-2.5 text-center">
+                      💡 Tuval üzerindeki metinlere tıklayarak doğrudan seçebilir ve fareyle sürükleyip istediğiniz yere bırakabilirsiniz.
+                    </p>
                   </div>
 
                   <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
                     <span>
                       {visitorMode === 'visitor'
-                        ? `Format: ${visitorCardPrefix}-001 .. ${visitorCardPrefix}-${String(visitorCardCount).padStart(3, '0')}`
-                        : `Format: ${staffCardPrefix}-001 .. ${staffCardPrefix}-${String(staffCardCount).padStart(3, '0')}`}
+                        ? `Numara Aralığı: ${visitorCardPrefix}-001 .. ${visitorCardPrefix}-${String(visitorCardCount).padStart(3, '0')}`
+                        : `Numara Aralığı: ${staffCardPrefix}-001 .. ${staffCardPrefix}-${String(staffCardCount).padStart(3, '0')}`}
                     </span>
-                    <span className="font-semibold text-slate-700">
-                      Öğrenci Şablonu ile %100 Uyumlu
+                    <span className="font-semibold text-emerald-700 flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Tek Yüzlü & Fotoğrafsız
                     </span>
                   </div>
                 </div>
@@ -3415,10 +4712,10 @@ export default function App() {
               <div className="flex items-center justify-between pb-2 border-b border-slate-200">
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">
-                    Oluşturulacak {visitorMode === 'visitor' ? 'Ziyaretçi' : 'Görevli'} Kartları Listesi ({visitorMode === 'visitor' ? currentVisitorList.length : currentStaffList.length} Kart)
+                    Oluşturulan {visitorMode === 'visitor' ? 'Ziyaretçi' : 'Görevli'} Kartları Listesi ({visitorMode === 'visitor' ? currentVisitorList.length : currentStaffList.length} Kart)
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Tüm kartlar ardışık numaralandırılmış olup çıktıda birebir bu sırayla basılacaktır.
+                    Tüm kartlar ardışık numaralandırılmış olup çıktıda tek yüzlü (arka yüz olmadan) basılacaktır.
                   </p>
                 </div>
                 <button
@@ -3434,7 +4731,7 @@ export default function App() {
 
               <div
                 className={`grid gap-4 ${
-                  activeTemplate.orientation === 'landscape'
+                  currentVisitorOrStaffTemplate.orientation === 'landscape'
                     ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4'
                     : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6'
                 }`}
@@ -3451,7 +4748,7 @@ export default function App() {
                       </div>
                       <CardCanvasPreview
                         student={cardItem}
-                        template={activeTemplate}
+                        template={currentVisitorOrStaffTemplate}
                         side="front"
                         className="w-full"
                       />

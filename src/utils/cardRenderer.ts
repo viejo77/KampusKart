@@ -908,10 +908,17 @@ export async function renderStudentCardToCanvas(
       if (key === 'schoolName') {
         maxAllowedWidth = maxSchoolWidth;
       } else if (key === 'fullName') {
-        maxAllowedWidth =
-          photoLeft > 0 && linePx < photoLeft
-            ? Math.max(40, photoLeft - linePx - 16)
-            : W * 0.56;
+        if (photoLeft > 0 && linePx < photoLeft) {
+          maxAllowedWidth = Math.max(40, photoLeft - linePx - 16);
+        } else if (photoLeft > 0) {
+          maxAllowedWidth = W * 0.56;
+        } else {
+          // No photo on card (Visitor or Staff badge)
+          maxAllowedWidth =
+            lineAlign === 'center'
+              ? Math.max(60, Math.min(linePx, W - linePx) * 1.92)
+              : Math.max(40, (W * 0.96) - linePx);
+        }
       } else {
         // Strict photo avoidance check for className, studentNumber, etc.
         if (photoLeft > 0) {
@@ -944,10 +951,16 @@ export async function renderStudentCardToCanvas(
           } else {
             if (lineAlign === 'left') {
               maxAllowedWidth = Math.max(40, (W * 0.96) - linePx);
+            } else if (lineAlign === 'center') {
+              maxAllowedWidth = Math.max(60, Math.min(linePx, W - linePx) * 1.92);
             }
           }
         } else {
-          maxAllowedWidth = Math.max(40, (W * 0.96) - linePx);
+          // No photo on card: allow full width relative to align
+          maxAllowedWidth =
+            lineAlign === 'center'
+              ? Math.max(60, Math.min(linePx, W - linePx) * 1.92)
+              : Math.max(40, (W * 0.96) - linePx);
         }
       }
 

@@ -81,12 +81,14 @@ export interface VisitorCardOptions {
   prefix?: string;
   title?: string;
   subtitle?: string;
+  namePattern?: string; // e.g. "ZİYARETÇİ - {no}" or "ZİYARETÇİ"
   validity?: string;
   startNumber?: number;
 }
 
 /**
  * Generates an array of Ziyaretçi (Visitor) cards compatible with StudentRecord.
+ * Photo is deliberately omitted (undefined) per user requirement ("fotoğraf kısmı olmasın").
  */
 export function generateVisitorCards(
   count: number,
@@ -94,29 +96,31 @@ export function generateVisitorCards(
 ): StudentRecord[] {
   const safeCount = Math.max(1, Math.min(200, count));
   const prefix = (options.prefix || 'ZYR').trim().toUpperCase();
-  const title = options.title || 'ZİYARETÇİ KARTI';
   const subtitle = options.subtitle || 'Günübirlik Misafir Girişi';
   const validity = options.validity || 'GÜNÜBİRLİK';
   const startNum = options.startNumber || 1;
+  const namePattern = options.namePattern?.trim() || 'ZİYARETÇİ - {no}';
 
   const result: StudentRecord[] = [];
   for (let i = 0; i < safeCount; i++) {
     const num = startNum + i;
     const cardCode = `${prefix}-${String(num).padStart(3, '0')}`;
-    const avatar = createVisitorBadgeAvatarSvg('visitor', cardCode, title);
+    const formattedName = namePattern
+      .replace('{no}', String(num).padStart(2, '0'))
+      .replace('{num}', String(num));
 
     result.push({
       id: `visitor-${Date.now()}-${i}`,
       studentNumber: cardCode,
-      fullName: `ZİYARETÇİ - ${String(num).padStart(2, '0')}`,
+      fullName: formattedName,
       className: 'Güvenlik Kayıtlı',
       fieldOfStudy: subtitle,
       schoolName: options.schoolName,
       academicYear: validity,
       bloodType: '-',
       emergencyPhone: 'Nizamiye Güvenlik',
-      photoDataUrl: avatar,
-      photoFileName: `${cardCode}.svg`,
+      photoDataUrl: undefined,
+      photoFileName: undefined,
     });
   }
 
@@ -128,12 +132,14 @@ export interface StaffCardOptions {
   prefix?: string;
   title?: string;
   subtitle?: string;
+  namePattern?: string; // e.g. "GÖREVLİ - {no}" or "GÖREVLİ PERSONEL"
   validity?: string;
   startNumber?: number;
 }
 
 /**
  * Generates an array of Görevli (Staff/Duty) cards compatible with StudentRecord.
+ * Photo is deliberately omitted (undefined) per user requirement ("fotoğraf kısmı olmasın").
  */
 export function generateStaffCards(
   count: number,
@@ -141,31 +147,34 @@ export function generateStaffCards(
 ): StudentRecord[] {
   const safeCount = Math.max(1, Math.min(200, count));
   const prefix = (options.prefix || 'GRV').trim().toUpperCase();
-  const title = options.title || 'GÖREVLİ KARTI';
   const subtitle = options.subtitle || 'Sınav & Etkinlik Görevlisi';
   const validity = options.validity || '2026-2027';
   const startNum = options.startNumber || 1;
+  const namePattern = options.namePattern?.trim() || 'GÖREVLİ - {no}';
 
   const result: StudentRecord[] = [];
   for (let i = 0; i < safeCount; i++) {
     const num = startNum + i;
     const cardCode = `${prefix}-${String(num).padStart(3, '0')}`;
-    const avatar = createVisitorBadgeAvatarSvg('staff', cardCode, title);
+    const formattedName = namePattern
+      .replace('{no}', String(num).padStart(2, '0'))
+      .replace('{num}', String(num));
 
     result.push({
       id: `staff-${Date.now()}-${i}`,
       studentNumber: cardCode,
-      fullName: `GÖREVLİ - ${String(num).padStart(2, '0')}`,
+      fullName: formattedName,
       className: 'Kurum Personeli',
       fieldOfStudy: subtitle,
       schoolName: options.schoolName,
       academicYear: validity,
       bloodType: '-',
       emergencyPhone: 'Okul İdaresi',
-      photoDataUrl: avatar,
-      photoFileName: `${cardCode}.svg`,
+      photoDataUrl: undefined,
+      photoFileName: undefined,
     });
   }
 
   return result;
 }
+

@@ -121,8 +121,8 @@ export const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
           return key;
         }
       } else {
-        const approxW = 32;
-        const approxH = 11;
+        const approxW = f.align === 'center' ? 56 : 38;
+        const approxH = 12;
         let left = f.x;
         if (f.align === 'center') left = f.x - approxW / 2;
         else if (f.align === 'right') left = f.x - approxW;
