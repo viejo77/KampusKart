@@ -330,8 +330,8 @@ async function renderCardWatermark(
   if (wm.layer !== targetLayer) return;
   if (side === 'back' && !wm.applyToBackSide) return;
 
-  const opacity = Math.max(0.02, Math.min(0.65, wm.opacity ?? 0.08));
-  const scalePct = Math.max(15, Math.min(130, wm.scale ?? 48));
+  const opacity = Math.max(0.02, Math.min(0.70, wm.opacity ?? 0.12));
+  const scalePct = Math.max(15, Math.min(130, wm.scale ?? 55));
   const rotationRad = ((wm.rotation ?? -25) * Math.PI) / 180;
 
   let logoImg: HTMLImageElement | null = null;
@@ -346,13 +346,16 @@ async function renderCardWatermark(
   ctx.save();
   ctx.globalAlpha = opacity;
 
-  // Clip watermark strictly within the card area (and below header bar when on background layer)
-  if (targetLayer === 'background') {
-    const topClip = side === 'front' ? H * 0.22 : H * 0.16;
-    const bottomClip = H * 0.94;
-    ctx.beginPath();
-    ctx.rect(0, topClip, W, bottomClip - topClip);
-    ctx.clip();
+  // Clip watermark strictly within the card area (and below header bar when on background layer if not repeating)
+  if (targetLayer === 'background' && !wm.repeatedPattern) {
+    const hasHeaderBand = template.id === 'meb-classic' && !template.customBackgroundUrl;
+    if (hasHeaderBand) {
+      const topClip = side === 'front' ? H * 0.20 : H * 0.15;
+      const bottomClip = H * 0.94;
+      ctx.beginPath();
+      ctx.rect(0, topClip, W, bottomClip - topClip);
+      ctx.clip();
+    }
   }
 
   const drawSingleWatermarkItem = (cx: number, cy: number, itemScaleFactor = 1) => {
@@ -378,7 +381,8 @@ async function renderCardWatermark(
         );
       }
     } else {
-      const watermarkText = (wm.text || 'ÖRNEK').trim() || 'ÖRNEK';
+      const fallbackText = template.cardTitleText ? template.cardTitleText.split(' ')[0] : 'ÖRNEK';
+      const watermarkText = (wm.text || fallbackText).trim() || 'ÖRNEK';
       const baseFontSize = Math.max(
         18,
         Math.round(Math.min(W, H) * (scalePct / 100) * 0.34 * itemScaleFactor)
@@ -404,7 +408,7 @@ async function renderCardWatermark(
       }
     }
   } else {
-    const centerY = targetLayer === 'background' ? H * 0.58 : H * 0.52;
+    const centerY = targetLayer === 'background' ? H * 0.56 : H * 0.52;
     drawSingleWatermarkItem(W * 0.5, centerY, 1);
   }
 

@@ -148,7 +148,7 @@ export default function App() {
 
   // Visitor & Staff Card Generation State
   const [visitorMode, setVisitorMode] = useState<'visitor' | 'staff'>('visitor');
-  const [visitorSubTab, setVisitorSubTab] = useState<'info' | 'colors' | 'fields'>('info');
+  const [visitorSubTab, setVisitorSubTab] = useState<'info' | 'colors' | 'fields' | 'watermark'>('info');
   const [visitorCardCount, setVisitorCardCount] = useState<number>(10);
   const [visitorCardPrefix, setVisitorCardPrefix] = useState<string>('ZYR');
   const [visitorCardTitle, setVisitorCardTitle] = useState<string>('ZİYARETÇİ KARTI');
@@ -207,10 +207,18 @@ export default function App() {
             setActiveTemplateId(saved.activeTemplateId);
           }
           if (saved.visitorTemplate) {
-            setVisitorTemplate(saved.visitorTemplate);
+            setVisitorTemplate({
+              ...DEFAULT_VISITOR_TEMPLATE,
+              ...saved.visitorTemplate,
+              watermark: saved.visitorTemplate.watermark || DEFAULT_VISITOR_TEMPLATE.watermark,
+            });
           }
           if (saved.staffTemplate) {
-            setStaffTemplate(saved.staffTemplate);
+            setStaffTemplate({
+              ...DEFAULT_STAFF_TEMPLATE,
+              ...saved.staffTemplate,
+              watermark: saved.staffTemplate.watermark || DEFAULT_STAFF_TEMPLATE.watermark,
+            });
           }
           if (saved.globalSchoolLine1 !== undefined) {
             setGlobalSchoolLine1(saved.globalSchoolLine1);
@@ -550,16 +558,105 @@ export default function App() {
 
   const activeWatermark: WatermarkConfig = activeTemplate.watermark || DEFAULT_WATERMARK_CONFIG;
 
+  const currentStudioWatermark: WatermarkConfig = useMemo(() => {
+    const isVisitorStaffTab = activeTab === 'visitor-staff';
+    const targetType = isVisitorStaffTab ? visitorMode : templateStudioCardType;
+
+    if (targetType === 'visitor') {
+      return (
+        visitorTemplate.watermark || {
+          ...DEFAULT_WATERMARK_CONFIG,
+          enabled: false,
+          type: 'text',
+          text: 'ZİYARETÇİ',
+          opacity: 0.12,
+          scale: 55,
+          rotation: -25,
+          layer: 'background',
+          repeatedPattern: false,
+        }
+      );
+    }
+    if (targetType === 'staff') {
+      return (
+        staffTemplate.watermark || {
+          ...DEFAULT_WATERMARK_CONFIG,
+          enabled: false,
+          type: 'text',
+          text: 'GÖREVLİ',
+          opacity: 0.12,
+          scale: 55,
+          rotation: -25,
+          layer: 'background',
+          repeatedPattern: false,
+        }
+      );
+    }
+    return activeTemplate.watermark || DEFAULT_WATERMARK_CONFIG;
+  }, [
+    activeTab,
+    visitorMode,
+    templateStudioCardType,
+    visitorTemplate.watermark,
+    staffTemplate.watermark,
+    activeTemplate.watermark,
+  ]);
+
   const updateWatermark = (patch: Partial<WatermarkConfig>) => {
-    setTemplates((prev) =>
-      prev.map((t) => ({
-        ...t,
+    const isVisitorStaffTab = activeTab === 'visitor-staff';
+    const targetType = isVisitorStaffTab ? visitorMode : templateStudioCardType;
+
+    if (targetType === 'visitor') {
+      setVisitorTemplate((prev) => ({
+        ...prev,
         watermark: {
-          ...(t.watermark || DEFAULT_WATERMARK_CONFIG),
+          ...(prev.watermark || {
+            ...DEFAULT_WATERMARK_CONFIG,
+            enabled: false,
+            type: 'text',
+            text: 'ZİYARETÇİ',
+            opacity: 0.12,
+            scale: 55,
+            rotation: -25,
+            layer: 'background',
+            repeatedPattern: false,
+          }),
           ...patch,
         },
-      }))
-    );
+      }));
+    } else if (targetType === 'staff') {
+      setStaffTemplate((prev) => ({
+        ...prev,
+        watermark: {
+          ...(prev.watermark || {
+            ...DEFAULT_WATERMARK_CONFIG,
+            enabled: false,
+            type: 'text',
+            text: 'GÖREVLİ',
+            opacity: 0.12,
+            scale: 55,
+            rotation: -25,
+            layer: 'background',
+            repeatedPattern: false,
+          }),
+          ...patch,
+        },
+      }));
+    } else {
+      setTemplates((prev) =>
+        prev.map((t) =>
+          t.id === activeTemplate.id
+            ? {
+                ...t,
+                watermark: {
+                  ...(t.watermark || DEFAULT_WATERMARK_CONFIG),
+                  ...patch,
+                },
+              }
+            : t
+        )
+      );
+    }
   };
 
   // Toggle optional Back Side globally across templates or current template
@@ -3652,16 +3749,16 @@ export default function App() {
                 <div className="flex items-center justify-between pb-3 border-b border-slate-200">
                   <div>
                     <span className="text-xs font-semibold text-blue-700">
-                      Güvenlik & Taslak Filigranı
+                      Güvenlik & Taslak Filigranı ({templateStudioCardType === 'visitor' ? 'Ziyaretçi Kartı' : templateStudioCardType === 'staff' ? 'Görevli Kartı' : 'Öğrenci Kimliği'})
                     </span>
                     <h3 className="text-base font-bold text-slate-900">
-                      Filigran Ayarları (Okul Logosu veya &apos;Örnek&apos; Yazısı)
+                      Filigran Ayarları (Okul Logosu veya &apos;{templateStudioCardType === 'visitor' ? 'ZİYARETÇİ' : templateStudioCardType === 'staff' ? 'GÖREVLİ' : 'Örnek'}&apos; Yazısı)
                     </h3>
                   </div>
                   <label className="flex items-center gap-2 px-3 py-1.5 bg-blue-50/70 border border-blue-200 rounded-lg text-xs font-bold text-blue-900 cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={activeWatermark.enabled}
+                      checked={currentStudioWatermark.enabled}
                       onChange={(e) => updateWatermark({ enabled: e.target.checked })}
                       className="rounded border-slate-300 text-blue-600 focus:ring-blue-600"
                     />
@@ -3681,7 +3778,7 @@ export default function App() {
                           type="button"
                           onClick={() => updateWatermark({ enabled: true, type: 'logo' })}
                           className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
-                            activeWatermark.type === 'logo'
+                            currentStudioWatermark.type === 'logo'
                               ? 'bg-white text-slate-900 shadow-xs'
                               : 'text-slate-600 hover:text-slate-900'
                           }`}
@@ -3692,7 +3789,7 @@ export default function App() {
                           type="button"
                           onClick={() => updateWatermark({ enabled: true, type: 'text' })}
                           className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
-                            activeWatermark.type === 'text'
+                            currentStudioWatermark.type === 'text'
                               ? 'bg-white text-slate-900 shadow-xs'
                               : 'text-slate-600 hover:text-slate-900'
                           }`}
@@ -3711,7 +3808,7 @@ export default function App() {
                           type="button"
                           onClick={() => updateWatermark({ enabled: true, layer: 'background' })}
                           className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
-                            activeWatermark.layer === 'background'
+                            currentStudioWatermark.layer === 'background'
                               ? 'bg-white text-slate-900 shadow-xs'
                               : 'text-slate-600 hover:text-slate-900'
                           }`}
@@ -3723,7 +3820,7 @@ export default function App() {
                           type="button"
                           onClick={() => updateWatermark({ enabled: true, layer: 'overlay' })}
                           className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
-                            activeWatermark.layer === 'overlay'
+                            currentStudioWatermark.layer === 'overlay'
                               ? 'bg-white text-slate-900 shadow-xs'
                               : 'text-slate-600 hover:text-slate-900'
                           }`}
@@ -3736,14 +3833,19 @@ export default function App() {
                   </div>
 
                   {/* Text Input & Presets if type === 'text', or Logo Upload shortcut if type === 'logo' */}
-                  {activeWatermark.type === 'text' ? (
+                  {currentStudioWatermark.type === 'text' ? (
                     <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
                       <div className="flex items-center justify-between">
                         <label className="text-xs font-semibold text-slate-700">
                           Filigran Metni
                         </label>
-                        <div className="flex items-center gap-1">
-                          {['ÖRNEK', 'TASLAK', 'GEÇERSİZDİR', 'RESMİ BELGE'].map((preset) => (
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {(templateStudioCardType === 'visitor'
+                            ? ['ZİYARETÇİ', 'GÜVENLİK', 'GEÇİCİ GİRİŞ', 'ÖRNEK']
+                            : templateStudioCardType === 'staff'
+                            ? ['GÖREVLİ', 'SINAV GÖREVLİSİ', 'GÖZETMEN', 'ÖRNEK']
+                            : ['ÖRNEK', 'TASLAK', 'GEÇERSİZDİR', 'RESMİ BELGE']
+                          ).map((preset) => (
                             <button
                               key={preset}
                               type="button"
@@ -3759,11 +3861,17 @@ export default function App() {
                       </div>
                       <input
                         type="text"
-                        value={activeWatermark.text}
+                        value={currentStudioWatermark.text}
                         onChange={(e) =>
                           updateWatermark({ enabled: true, text: e.target.value })
                         }
-                        placeholder="Örn: ÖRNEK KİMLİK KARTI veya Okul Adı"
+                        placeholder={
+                          templateStudioCardType === 'visitor'
+                            ? 'ZİYARETÇİ'
+                            : templateStudioCardType === 'staff'
+                            ? 'GÖREVLİ'
+                            : 'Örn: ÖRNEK KİMLİK KARTI veya Okul Adı'
+                        }
                         className="w-full px-2.5 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
                       />
                     </div>
@@ -3771,7 +3879,7 @@ export default function App() {
                     <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between gap-3">
                       <div className="text-xs text-slate-600">
                         <span className="font-semibold text-slate-800 block">
-                          {activeTemplate.schoolLogoUrl
+                          {currentStudioTemplate.schoolLogoUrl
                             ? 'Yüklü Okul Logosu Filigran Olarak Kullanılıyor'
                             : 'Varsayılan Kurumsal Okul Amblemi Kullanılıyor'}
                         </span>
@@ -3781,10 +3889,16 @@ export default function App() {
                       </div>
                       <button
                         type="button"
-                        onClick={() => schoolLogoInputRef.current?.click()}
+                        onClick={() => {
+                          if (templateStudioCardType !== 'student') {
+                            visitorLogoInputRef.current?.click();
+                          } else {
+                            schoolLogoInputRef.current?.click();
+                          }
+                        }}
                         className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg whitespace-nowrap cursor-pointer"
                       >
-                        {activeTemplate.schoolLogoUrl ? 'Logoyu Değiştir' : '+ Logo Yükle'}
+                        {currentStudioTemplate.schoolLogoUrl ? 'Logoyu Değiştir' : '+ Logo Yükle'}
                       </button>
                     </div>
                   )}
@@ -3795,7 +3909,7 @@ export default function App() {
                       <div className="flex justify-between text-xs mb-1">
                         <span className="text-slate-600 font-medium">Şeffaflık (Opaklık)</span>
                         <span className="font-mono font-semibold text-blue-700">
-                          %{Math.round((activeWatermark.opacity ?? 0.08) * 100)}
+                          %{Math.round((currentStudioWatermark.opacity ?? 0.08) * 100)}
                         </span>
                       </div>
                       <input
@@ -3803,7 +3917,7 @@ export default function App() {
                         min={3}
                         max={45}
                         step={1}
-                        value={Math.round((activeWatermark.opacity ?? 0.08) * 100)}
+                        value={Math.round((currentStudioWatermark.opacity ?? 0.08) * 100)}
                         onChange={(e) =>
                           updateWatermark({
                             enabled: true,
@@ -3818,7 +3932,7 @@ export default function App() {
                       <div className="flex justify-between text-xs mb-1">
                         <span className="text-slate-600 font-medium">Filigran Boyutu</span>
                         <span className="font-mono font-semibold text-blue-700">
-                          %{activeWatermark.scale}
+                          %{currentStudioWatermark.scale}
                         </span>
                       </div>
                       <input
@@ -3826,7 +3940,7 @@ export default function App() {
                         min={20}
                         max={110}
                         step={2}
-                        value={activeWatermark.scale}
+                        value={currentStudioWatermark.scale}
                         onChange={(e) =>
                           updateWatermark({
                             enabled: true,
@@ -3841,7 +3955,7 @@ export default function App() {
                       <div className="flex justify-between text-xs mb-1">
                         <span className="text-slate-600 font-medium">Döndürme Açısı</span>
                         <span className="font-mono font-semibold text-blue-700">
-                          {activeWatermark.rotation}°
+                          {currentStudioWatermark.rotation}°
                         </span>
                       </div>
                       <input
@@ -3849,7 +3963,7 @@ export default function App() {
                         min={-60}
                         max={60}
                         step={5}
-                        value={activeWatermark.rotation}
+                        value={currentStudioWatermark.rotation}
                         onChange={(e) =>
                           updateWatermark({
                             enabled: true,
@@ -3866,7 +3980,7 @@ export default function App() {
                     <label className="flex items-center gap-2 font-medium text-slate-700 cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={activeWatermark.repeatedPattern}
+                        checked={currentStudioWatermark.repeatedPattern}
                         onChange={(e) =>
                           updateWatermark({
                             enabled: true,
@@ -3878,20 +3992,22 @@ export default function App() {
                       <span>Çoklu Çapraz Desen (Tüm Karta Döşe)</span>
                     </label>
 
-                    <label className="flex items-center gap-2 font-medium text-slate-700 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={activeWatermark.applyToBackSide}
-                        onChange={(e) =>
-                          updateWatermark({
-                            enabled: true,
-                            applyToBackSide: e.target.checked,
-                          })
-                        }
-                        className="rounded border-slate-300 text-blue-600"
-                      />
-                      <span>Arka Yüze de Filigran Uygula</span>
-                    </label>
+                    {templateStudioCardType === 'student' && (
+                      <label className="flex items-center gap-2 font-medium text-slate-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={currentStudioWatermark.applyToBackSide}
+                          onChange={(e) =>
+                            updateWatermark({
+                              enabled: true,
+                              applyToBackSide: e.target.checked,
+                            })
+                          }
+                          className="rounded border-slate-300 text-blue-600"
+                        />
+                        <span>Arka Yüze de Filigran Uygula</span>
+                      </label>
+                    )}
                   </div>
                 </div>
               </div>
@@ -3961,23 +4077,23 @@ export default function App() {
               {/* Left 6 Columns: Generator Settings & Customization */}
               <div className="lg:col-span-6 space-y-4">
                 {/* Sub-tabs for Visitor/Staff Customization */}
-                <div className="bg-white border border-slate-200 rounded-xl p-1.5 flex items-center gap-1">
+                <div className="bg-white border border-slate-200 rounded-xl p-1.5 flex flex-wrap sm:flex-nowrap items-center gap-1">
                   <button
                     type="button"
                     onClick={() => setVisitorSubTab('info')}
-                    className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                    className={`flex-1 min-w-[110px] py-2 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
                       visitorSubTab === 'info'
                         ? 'bg-slate-900 text-white shadow-xs'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                     }`}
                   >
                     <Type className="w-3.5 h-3.5" />
-                    Kart Bilgileri & Sayı
+                    Bilgiler & Sayı
                   </button>
                   <button
                     type="button"
                     onClick={() => setVisitorSubTab('colors')}
-                    className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                    className={`flex-1 min-w-[110px] py-2 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
                       visitorSubTab === 'colors'
                         ? 'bg-slate-900 text-white shadow-xs'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
@@ -3989,7 +4105,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => setVisitorSubTab('fields')}
-                    className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                    className={`flex-1 min-w-[110px] py-2 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
                       visitorSubTab === 'fields'
                         ? 'bg-slate-900 text-white shadow-xs'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
@@ -3997,6 +4113,21 @@ export default function App() {
                   >
                     <Sliders className="w-3.5 h-3.5" />
                     Alan Yerleşimi & Fontlar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setVisitorSubTab('watermark')}
+                    className={`flex-1 min-w-[110px] py-2 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                      visitorSubTab === 'watermark'
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Shield className="w-3.5 h-3.5" />
+                    <span>Güvenlik Filigranı</span>
+                    {currentVisitorOrStaffTemplate.watermark?.enabled && (
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="Filigran Aktif" />
+                    )}
                   </button>
                 </div>
 
@@ -4655,6 +4786,280 @@ export default function App() {
                         </div>
                       );
                     })()}
+                  </div>
+                )}
+
+                {/* Sub-Tab 4: Güvenlik Filigranı (Visitor / Staff Watermark) */}
+                {visitorSubTab === 'watermark' && (
+                  <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                      <div>
+                        <div className="flex items-center gap-1.5 text-blue-700">
+                          <Shield className="w-4 h-4" />
+                          <span className="text-xs font-semibold">
+                            Güvenlik & Filigran ({visitorMode === 'visitor' ? 'Ziyaretçi Kartı' : 'Görevli Kartı'})
+                          </span>
+                        </div>
+                        <h3 className="text-sm font-bold text-slate-900 mt-0.5">
+                          {visitorMode === 'visitor' ? 'Ziyaretçi' : 'Görevli'} Kartı Güvenlik Filigranı
+                        </h3>
+                        <p className="text-xs text-slate-500">
+                          Kartın zeminine veya üzerine şeffaf güvenlik filigranı ekleyin (Örn: &apos;ZİYARETÇİ&apos;, &apos;GÖREVLİ&apos; metni veya Kurumsal Logo).
+                        </p>
+                      </div>
+
+                      <label className="flex items-center gap-2 px-3 py-1.5 bg-blue-50/70 border border-blue-200 rounded-lg text-xs font-bold text-blue-900 cursor-pointer hover:bg-blue-100 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={currentVisitorOrStaffTemplate.watermark?.enabled ?? false}
+                          onChange={(e) => updateWatermark({ enabled: e.target.checked })}
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-600"
+                        />
+                        <span>Filigranı Aktif Et</span>
+                      </label>
+                    </div>
+
+                    <div className="space-y-4">
+                      {/* Filigran Türü & Katman */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                            Filigran Türü
+                          </label>
+                          <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+                            <button
+                              type="button"
+                              onClick={() => updateWatermark({ enabled: true, type: 'text' })}
+                              className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                                (currentVisitorOrStaffTemplate.watermark?.type ?? 'text') === 'text'
+                                  ? 'bg-white text-slate-900 shadow-xs'
+                                  : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                            >
+                              Özel Metin
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => updateWatermark({ enabled: true, type: 'logo' })}
+                              className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                                currentVisitorOrStaffTemplate.watermark?.type === 'logo'
+                                  ? 'bg-white text-slate-900 shadow-xs'
+                                  : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                            >
+                              Kurum Logosu / Amblem
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                            Filigran Konumu (Katman)
+                          </label>
+                          <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+                            <button
+                              type="button"
+                              onClick={() => updateWatermark({ enabled: true, layer: 'background' })}
+                              className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                                (currentVisitorOrStaffTemplate.watermark?.layer ?? 'background') === 'background'
+                                  ? 'bg-white text-slate-900 shadow-xs'
+                                  : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                              title="Yazıların ve alanların altında şeffaf zemin filigranı olarak yer alır"
+                            >
+                              Arka Plana (Zemin)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => updateWatermark({ enabled: true, layer: 'overlay' })}
+                              className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                                currentVisitorOrStaffTemplate.watermark?.layer === 'overlay'
+                                  ? 'bg-white text-slate-900 shadow-xs'
+                                  : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                              title="Tüm kartın ve yazıların üzerinde güvenlik filigranı olarak yer alır"
+                            >
+                              Kartın Üstüne (Üst Katman)
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Text Input & Quick Presets (if type === 'text') */}
+                      {(currentVisitorOrStaffTemplate.watermark?.type ?? 'text') === 'text' ? (
+                        <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-semibold text-slate-700">
+                              Filigran Metni
+                            </label>
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {(visitorMode === 'visitor'
+                                ? ['ZİYARETÇİ', 'GÜVENLİK', 'GEÇİCİ GİRİŞ', 'MİSAFİR', 'GÜNÜBİRLİK', 'ÖRNEK']
+                                : ['GÖREVLİ', 'SINAV GÖREVLİSİ', 'GÖZETMEN', 'KURUM PERSONELİ', 'NÖBETÇİ', 'ÖRNEK']
+                              ).map((preset) => (
+                                <button
+                                  key={preset}
+                                  type="button"
+                                  onClick={() =>
+                                    updateWatermark({ enabled: true, text: preset })
+                                  }
+                                  className="px-2 py-0.5 text-[10px] font-semibold bg-white border border-slate-200 hover:border-blue-500 text-slate-700 rounded transition-colors cursor-pointer"
+                                >
+                                  {preset}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <input
+                            type="text"
+                            value={currentVisitorOrStaffTemplate.watermark?.text ?? (visitorMode === 'visitor' ? 'ZİYARETÇİ' : 'GÖREVLİ')}
+                            onChange={(e) =>
+                              updateWatermark({ enabled: true, text: e.target.value })
+                            }
+                            placeholder={visitorMode === 'visitor' ? 'ZİYARETÇİ' : 'GÖREVLİ'}
+                            className="w-full px-2.5 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600"
+                          />
+                        </div>
+                      ) : (
+                        <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between gap-3">
+                          <div className="text-xs text-slate-600">
+                            <span className="font-semibold text-slate-800 block">
+                              {currentVisitorOrStaffTemplate.schoolLogoUrl
+                                ? 'Yüklü Kurum Logosu Filigran Olarak Kullanılıyor'
+                                : 'Varsayılan Kurumsal Logo / Amblem Kullanılıyor'}
+                            </span>
+                            <span>
+                              Kendi logonuzu yüklediğinizde kartın ortasında şeffaf güvenlik filigranı olarak gösterilir.
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => visitorLogoInputRef.current?.click()}
+                            className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg whitespace-nowrap cursor-pointer inline-flex items-center gap-1"
+                          >
+                            <Upload className="w-3.5 h-3.5" />
+                            {currentVisitorOrStaffTemplate.schoolLogoUrl ? 'Logoyu Değiştir' : '+ Logo Yükle'}
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Opacity, Scale, Rotation Sliders */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
+                        <div>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-slate-600 font-medium">Şeffaflık (Opaklık)</span>
+                            <span className="font-mono font-semibold text-blue-700">
+                              %{Math.round((currentVisitorOrStaffTemplate.watermark?.opacity ?? 0.12) * 100)}
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min={4}
+                            max={60}
+                            step={1}
+                            value={Math.round((currentVisitorOrStaffTemplate.watermark?.opacity ?? 0.12) * 100)}
+                            onChange={(e) =>
+                              updateWatermark({
+                                enabled: true,
+                                opacity: parseInt(e.target.value, 10) / 100,
+                              })
+                            }
+                            className="w-full accent-blue-600"
+                          />
+                        </div>
+
+                        <div>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-slate-600 font-medium">Filigran Boyutu</span>
+                            <span className="font-mono font-semibold text-blue-700">
+                              %{currentVisitorOrStaffTemplate.watermark?.scale ?? 55}
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min={20}
+                            max={120}
+                            step={2}
+                            value={currentVisitorOrStaffTemplate.watermark?.scale ?? 55}
+                            onChange={(e) =>
+                              updateWatermark({
+                                enabled: true,
+                                scale: parseInt(e.target.value, 10),
+                              })
+                            }
+                            className="w-full accent-blue-600"
+                          />
+                        </div>
+
+                        <div>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-slate-600 font-medium">Döndürme Açısı</span>
+                            <span className="font-mono font-semibold text-blue-700">
+                              {currentVisitorOrStaffTemplate.watermark?.rotation ?? -25}°
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min={-60}
+                            max={60}
+                            step={5}
+                            value={currentVisitorOrStaffTemplate.watermark?.rotation ?? -25}
+                            onChange={(e) =>
+                              updateWatermark({
+                                enabled: true,
+                                rotation: parseInt(e.target.value, 10),
+                              })
+                            }
+                            className="w-full accent-blue-600"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Pattern & Preset Angles */}
+                      <div className="pt-2 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+                        <label className="flex items-center gap-2 font-medium text-slate-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(currentVisitorOrStaffTemplate.watermark?.repeatedPattern)}
+                            onChange={(e) =>
+                              updateWatermark({
+                                enabled: true,
+                                repeatedPattern: e.target.checked,
+                              })
+                            }
+                            className="rounded border-slate-300 text-blue-600"
+                          />
+                          <span>Çoklu Çapraz Desen (Tüm Karta Döşe)</span>
+                        </label>
+
+                        {/* Quick Angles */}
+                        <div className="flex items-center gap-1 text-[11px]">
+                          <span className="text-slate-500 mr-1">Hızlı Açı:</span>
+                          {[-45, -25, 0, 25, 45].map((angle) => (
+                            <button
+                              key={angle}
+                              type="button"
+                              onClick={() => updateWatermark({ enabled: true, rotation: angle })}
+                              className={`px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${
+                                (currentVisitorOrStaffTemplate.watermark?.rotation ?? -25) === angle
+                                  ? 'bg-blue-600 text-white border-blue-600'
+                                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                              }`}
+                            >
+                              {angle === 0 ? 'Düz' : `${angle > 0 ? '+' : ''}${angle}°`}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Informative Security Banner */}
+                      <div className="p-2.5 bg-blue-50/70 border border-blue-200/60 rounded-lg flex items-center gap-2 text-xs text-blue-900">
+                        <Shield className="w-4 h-4 text-blue-600 shrink-0" />
+                        <span>
+                          Filigran anlık olarak sağdaki kart önizlemesinde gösterilir ve PDF indirdiğinizde tüm {visitorMode === 'visitor' ? 'ziyaretçi' : 'görevli'} kartlarına yüksek kalitede otomatik basılır.
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 )}
 

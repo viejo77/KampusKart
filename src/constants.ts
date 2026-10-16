@@ -1051,7 +1051,17 @@ export const DEFAULT_VISITOR_TEMPLATE: CardTemplate = {
   defaultAcademicYear: 'GÜNÜBİRLİK',
   cardTitleText: 'ZİYARETÇİ KARTI',
   enableBackSide: false,
-  watermark: { ...DEFAULT_WATERMARK_CONFIG, enabled: false },
+  watermark: {
+    ...DEFAULT_WATERMARK_CONFIG,
+    enabled: false,
+    type: 'text',
+    text: 'ZİYARETÇİ',
+    opacity: 0.12,
+    scale: 55,
+    rotation: -25,
+    layer: 'background',
+    repeatedPattern: false,
+  },
   fields: {
     schoolName: {
       id: 'schoolName',
@@ -1178,7 +1188,17 @@ export const DEFAULT_STAFF_TEMPLATE: CardTemplate = {
   defaultAcademicYear: '2026-2027',
   cardTitleText: 'GÖREVLİ KARTI',
   enableBackSide: false,
-  watermark: { ...DEFAULT_WATERMARK_CONFIG, enabled: false },
+  watermark: {
+    ...DEFAULT_WATERMARK_CONFIG,
+    enabled: false,
+    type: 'text',
+    text: 'GÖREVLİ',
+    opacity: 0.12,
+    scale: 55,
+    rotation: -25,
+    layer: 'background',
+    repeatedPattern: false,
+  },
   fields: {
     schoolName: {
       id: 'schoolName',
