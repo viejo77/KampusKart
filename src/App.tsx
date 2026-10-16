@@ -182,7 +182,10 @@ export default function App() {
   const [isLoadedFromStorage, setIsLoadedFromStorage] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
   const [showBackupModal, setShowBackupModal] = useState<boolean>(false);
+  const isInitialHydrationDone = useRef<boolean>(false);
+  const latestStateRef = useRef<AppPersistedState | null>(null);
 
   // Restore saved state from IndexedDB on initial mount
   useEffect(() => {
@@ -244,6 +247,7 @@ export default function App() {
             );
           }
           setSaveStatus('saved');
+          setHasUnsavedChanges(false);
         }
       } catch (err) {
         console.error('Failed to load state from IndexedDB:', err);
@@ -260,62 +264,46 @@ export default function App() {
     };
   }, []);
 
-  // Auto-save changes to persistent IndexedDB storage
+  // Update latest state snapshot without saving instantly
   useEffect(() => {
     if (!isLoadedFromStorage) return;
 
-    setSaveStatus('saving');
-    const timer = setTimeout(async () => {
-      try {
-        const photoPoolEntries = Array.from(photoPool.entries());
-        const stateToSave: AppPersistedState = {
-          version: 1,
-          savedAt: new Date().toISOString(),
-          students,
-          photoPoolEntries,
-          templates,
-          activeTemplateId,
-          visitorTemplate,
-          staffTemplate,
-          globalSchoolLine1,
-          globalSchoolLine2,
-          globalAcademicYear,
-          visitorSettings: {
-            count: visitorCardCount,
-            prefix: visitorCardPrefix,
-            title: visitorCardTitle,
-            subtitle: visitorCardSubtitle,
-            pattern: visitorNamePattern,
-          },
-          staffSettings: {
-            count: staffCardCount,
-            prefix: staffCardPrefix,
-            title: staffCardTitle,
-            subtitle: staffCardSubtitle,
-            pattern: staffNamePattern,
-          },
-          pdfSettings,
-        };
+    const photoPoolEntries = Array.from(photoPool.entries());
+    latestStateRef.current = {
+      version: 1,
+      savedAt: new Date().toISOString(),
+      students,
+      photoPoolEntries,
+      templates,
+      activeTemplateId,
+      visitorTemplate,
+      staffTemplate,
+      globalSchoolLine1,
+      globalSchoolLine2,
+      globalAcademicYear,
+      visitorSettings: {
+        count: visitorCardCount,
+        prefix: visitorCardPrefix,
+        title: visitorCardTitle,
+        subtitle: visitorCardSubtitle,
+        pattern: visitorNamePattern,
+      },
+      staffSettings: {
+        count: staffCardCount,
+        prefix: staffCardPrefix,
+        title: staffCardTitle,
+        subtitle: staffCardSubtitle,
+        pattern: staffNamePattern,
+      },
+      pdfSettings,
+    };
 
-        const success = await saveAppState(stateToSave);
-        if (success) {
-          setSaveStatus('saved');
-          setLastSavedTime(
-            new Date().toLocaleTimeString('tr-TR', {
-              hour: '2-digit',
-              minute: '2-digit',
-            })
-          );
-        } else {
-          setSaveStatus('error');
-        }
-      } catch (err) {
-        console.error('Auto-save error:', err);
-        setSaveStatus('error');
-      }
-    }, 650);
-
-    return () => clearTimeout(timer);
+    if (isInitialHydrationDone.current) {
+      setHasUnsavedChanges(true);
+      setSaveStatus('idle');
+    } else {
+      isInitialHydrationDone.current = true;
+    }
   }, [
     isLoadedFromStorage,
     students,
@@ -339,6 +327,59 @@ export default function App() {
     staffNamePattern,
     pdfSettings,
   ]);
+
+  // Save execution function (called on 5-minute schedule or manually)
+  const performSave = async () => {
+    if (!latestStateRef.current) return;
+    setSaveStatus('saving');
+    try {
+      const stateToSave = {
+        ...latestStateRef.current,
+        savedAt: new Date().toISOString(),
+      };
+      const success = await saveAppState(stateToSave);
+      if (success) {
+        setSaveStatus('saved');
+        setHasUnsavedChanges(false);
+        setLastSavedTime(
+          new Date().toLocaleTimeString('tr-TR', {
+            hour: '2-digit',
+            minute: '2-digit',
+          })
+        );
+      } else {
+        setSaveStatus('error');
+      }
+    } catch (err) {
+      console.error('Save error:', err);
+      setSaveStatus('error');
+    }
+  };
+
+  // 5-minute periodic auto-save interval (300,000 ms)
+  useEffect(() => {
+    if (!isLoadedFromStorage) return;
+
+    const intervalTimer = setInterval(() => {
+      if (latestStateRef.current && hasUnsavedChanges) {
+        performSave();
+      }
+    }, 5 * 60 * 1000); // 5 minutes
+
+    return () => clearInterval(intervalTimer);
+  }, [isLoadedFromStorage, hasUnsavedChanges]);
+
+  // Warn user before closing/reloading page if there are unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   // Export full JSON backup
   const handleExportFullBackup = () => {
@@ -1305,21 +1346,40 @@ export default function App() {
           </button>
         </nav>
 
-        {/* Zone 3: Storage Status, Backup, and Primary Actions */}
+        {/* Zone 3: Storage Status (5 Min Auto-Save), Backup, and Primary Actions */}
         <div className="flex items-center gap-2.5">
-          {/* Storage Auto-Save Status Badge */}
+          {/* 5-Min Periodic Auto-Save Status & Manual Save Trigger */}
           {saveStatus === 'saving' ? (
             <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-amber-700 bg-amber-50 rounded-lg border border-amber-200">
               <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-600" />
               <span>Kaydediliyor...</span>
             </div>
+          ) : hasUnsavedChanges ? (
+            <div className="hidden xl:flex items-center gap-2">
+              <span
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-amber-800 bg-amber-50 rounded-lg border border-amber-200"
+                title="Değişiklikler her 5 dakikada bir otomatik kaydedilir. Beklemeden kaydetmek için 'Şimdi Kaydet' butonuna basabilirsiniz."
+              >
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                <span>5 dk oto-kayıt</span>
+              </span>
+              <button
+                type="button"
+                onClick={performSave}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors cursor-pointer shadow-2xs"
+                title="5 dakikayı beklemeden hemen tarayıcı hafızasına kaydet"
+              >
+                <Save className="w-3.5 h-3.5" />
+                Şimdi Kaydet
+              </button>
+            </div>
           ) : (
             <div
               className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-lg border border-emerald-200"
-              title="Tüm ayarlar ve öğrenci bilgileri tarayıcı hafızasında saklanıyor. Sayfayı yenilediğinizde silinmez."
+              title="Tüm verileriniz tarayıcı hafızasında saklıdır. Otomatik kayıt 5 dakikada bir çalışır."
             >
               <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
-              <span>Otomatik Kayıtlı {lastSavedTime ? `(${lastSavedTime})` : ''}</span>
+              <span>Kayıtlı (5 dk döngü{lastSavedTime ? ` · ${lastSavedTime}` : ''})</span>
             </div>
           )}
 
@@ -1370,7 +1430,7 @@ export default function App() {
                     Tarayıcı Hafızası & Veri Güvencesi
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Bilgileriniz sayfa yenilense de asla silinmez
+                    Otomatik kayıt 5 dakikada bir periyodik olarak çalışır
                   </p>
                 </div>
               </div>
@@ -1386,18 +1446,34 @@ export default function App() {
             {/* Status Information Box */}
             <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 flex items-start gap-3 text-xs text-emerald-900">
               <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-              <div className="space-y-1">
+              <div className="space-y-1 w-full">
                 <p className="font-semibold text-emerald-950">
-                  Otomatik Yerel Hafıza (IndexedDB) Aktif
+                  Otomatik Kayıt Periyodu: 5 Dakikada Bir (Anlık Değil)
                 </p>
                 <p className="text-emerald-800 leading-relaxed">
-                  Öğrenci listeniz ({students.length} kişi), yüklediğiniz fotoğraflar, Ziyaretçi & Görevli kartları ve yaptığınız tüm renk/şablon düzenlemeleri tarayıcınızın yerel belleğine anlık olarak kaydedilir. Sayfayı yenilediğinizde (F5) veya tarayıcıyı kapattığınızda hiçbir veriniz kaybolmaz.
+                  Öğrenci listeniz ({students.length} kişi), yüklenen fotoğraflar, Ziyaretçi & Görevli kartları ve şablon düzenlemeleriniz anlık değil, <strong>her 5 dakikada bir</strong> otomatik olarak tarayıcı hafızasına (IndexedDB) kaydedilir.
                 </p>
-                {lastSavedTime && (
-                  <p className="text-emerald-700 text-[11px] pt-1">
-                    Son otomatik kayıt: <strong>{lastSavedTime}</strong>
-                  </p>
-                )}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-emerald-200/60 mt-2">
+                  <div className="text-[11px] text-emerald-800">
+                    {hasUnsavedChanges ? (
+                      <span className="text-amber-800 font-medium">● 5 dk içinde otomatik kaydedilecek</span>
+                    ) : (
+                      <span>✓ Tüm değişiklikler hafızada kayıtlı</span>
+                    )}
+                    {lastSavedTime && <span className="ml-2 font-mono text-emerald-700">· Son Kayıt: {lastSavedTime}</span>}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      performSave();
+                    }}
+                    disabled={saveStatus === 'saving'}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg transition-colors cursor-pointer shadow-xs disabled:opacity-50"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    Hemen Kaydet
+                  </button>
+                </div>
               </div>
             </div>
 
