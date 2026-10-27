@@ -1173,15 +1173,28 @@ export default function App() {
     });
   };
 
-  // Trigger Batch PDF Export
-  const handleExportBatchPdf = async () => {
-    if (students.length === 0 || isExportingPdf) return;
+  // Trigger Batch PDF Export (supports exporting all or only students with photos)
+  const handleExportBatchPdf = async (onlyWithPhoto: boolean = false) => {
+    const targetStudents = onlyWithPhoto
+      ? students.filter((s) => Boolean(s.photoDataUrl && s.photoDataUrl.trim() !== ''))
+      : students;
+
+    if (targetStudents.length === 0 || isExportingPdf) {
+      if (onlyWithPhoto && targetStudents.length === 0) {
+        setStatusBanner({
+          type: 'warning',
+          message: 'Fotoğrafı olan hiçbir öğrenci kaydı bulunamadı. Lütfen önce fotoğrafları yükleyip eşleştirin.',
+        });
+      }
+      return;
+    }
+
     setIsExportingPdf(true);
-    setExportProgress({ current: 0, total: students.length });
+    setExportProgress({ current: 0, total: targetStudents.length });
 
     try {
       await generateBatchStudentCardsPdf(
-        students,
+        targetStudents,
         activeTemplate,
         {
           ...pdfSettings,
@@ -1193,9 +1206,11 @@ export default function App() {
       );
       setStatusBanner({
         type: 'success',
-        message: `${students.length} öğrencinin ${
+        message: `${targetStudents.length} ${
+          onlyWithPhoto ? 'fotoğraflı ' : ''
+        }öğrencinin ${
           activeTemplate.enableBackSide ? 'çift taraflı (ön + arka yüz)' : 'tek taraflı (ön yüz)'
-        } kimlik kartı PDF olarak indirildi.`,
+        } kimlik kartı PDF olarak başarıyla indirildi.`,
       });
     } catch {
       setStatusBanner({
@@ -1499,10 +1514,22 @@ export default function App() {
             <FileSpreadsheet className="w-4 h-4 text-slate-600" />
             Örnek Excel
           </button>
+          {matchedPhotosCount > 0 && (
+            <button
+              type="button"
+              disabled={isExportingPdf}
+              onClick={() => handleExportBatchPdf(true)}
+              className="hidden md:inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors whitespace-nowrap shadow-xs cursor-pointer"
+              title="Yalnızca fotoğraflı öğrencileri PDF olarak indir"
+            >
+              <ImageIcon className="w-3.5 h-3.5" />
+              <span>Fotoğraflı PDF ({matchedPhotosCount})</span>
+            </button>
+          )}
           <button
             type="button"
             disabled={isExportingPdf || students.length === 0}
-            onClick={handleExportBatchPdf}
+            onClick={() => handleExportBatchPdf(false)}
             className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors whitespace-nowrap shadow-xs cursor-pointer"
           >
             <Download className="w-4 h-4" />
@@ -2114,6 +2141,19 @@ export default function App() {
                         Eksik ({missingPhotosCount})
                       </button>
                     </div>
+
+                    {matchedPhotosCount > 0 && (
+                      <button
+                        type="button"
+                        disabled={isExportingPdf}
+                        onClick={() => handleExportBatchPdf(true)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors whitespace-nowrap cursor-pointer"
+                        title="Yalnızca fotoğraflı öğrencilerin kartlarını PDF olarak indir"
+                      >
+                        <Download className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Fotoğraflıları İndir ({matchedPhotosCount})</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -2649,7 +2689,7 @@ export default function App() {
                   <button
                     type="button"
                     disabled={isExportingPdf || students.length === 0}
-                    onClick={handleExportBatchPdf}
+                    onClick={() => handleExportBatchPdf(false)}
                     className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
                   >
                     <FileCheck className="w-4 h-4" />
@@ -2660,6 +2700,20 @@ export default function App() {
                             ? 'Çift Taraflı (Ön+Arka) '
                             : 'Tek Seferde '
                         }Toplu PDF İndir`}
+                  </button>
+
+                  {/* Sadece Fotoğraflı Olan Kimliklerin Çıktısını Al Butonu */}
+                  <button
+                    type="button"
+                    disabled={isExportingPdf || matchedPhotosCount === 0}
+                    onClick={() => handleExportBatchPdf(true)}
+                    className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                    title="Yalnızca fotoğrafı yüklenmiş ve eşleşmiş olan öğrencilerin kimlik kartlarını PDF olarak yazdırır"
+                  >
+                    <ImageIcon className="w-4 h-4" />
+                    {isExportingPdf && exportProgress
+                      ? `PDF Hazırlanıyor (${exportProgress.current}/${exportProgress.total})...`
+                      : `Sadece Fotoğraflı Kartları İndir (${matchedPhotosCount} Öğrenci)`}
                   </button>
                 </div>
               </div>
@@ -5326,10 +5380,22 @@ export default function App() {
                   </button>
                 </div>
 
+                {/* Sadece Fotoğraflı Kartları İndir Butonu */}
+                <button
+                  type="button"
+                  disabled={isExportingPdf || matchedPhotosCount === 0}
+                  onClick={() => handleExportBatchPdf(true)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-xl shadow-xs transition-colors whitespace-nowrap cursor-pointer"
+                  title="Yalnızca fotoğrafı yüklenmiş ve eşleşmiş olan öğrencilerin kimlik kartlarını PDF olarak yazdırır"
+                >
+                  <ImageIcon className="w-4 h-4" />
+                  <span>Sadece Fotoğraflıları İndir ({matchedPhotosCount})</span>
+                </button>
+
                 <button
                   type="button"
                   disabled={isExportingPdf || students.length === 0}
-                  onClick={handleExportBatchPdf}
+                  onClick={() => handleExportBatchPdf(false)}
                   className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-xl shadow-xs transition-colors whitespace-nowrap cursor-pointer"
                 >
                   <Download className="w-4 h-4" />

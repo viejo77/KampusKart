@@ -1013,22 +1013,19 @@ function drawFallbackAvatar(
   h: number,
   student: StudentRecord
 ) {
-  ctx.fillStyle = '#e2e8f0';
+  // Clean neutral background for photo box
+  ctx.fillStyle = '#f1f5f9';
   ctx.fillRect(x, y, w, h);
 
-  ctx.fillStyle = '#94a3b8';
+  // Clean official silhouette avatar (no text or filename label)
+  ctx.fillStyle = '#cbd5e1';
   ctx.beginPath();
-  ctx.arc(x + w / 2, y + h * 0.36, Math.min(w, h) * 0.2, 0, Math.PI * 2);
+  ctx.arc(x + w / 2, y + h * 0.38, Math.min(w, h) * 0.22, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.beginPath();
-  ctx.arc(x + w / 2, y + h * 0.95, Math.min(w, h) * 0.42, Math.PI, 0, false);
+  ctx.arc(x + w / 2, y + h * 0.96, Math.min(w, h) * 0.44, Math.PI, 0, false);
   ctx.fill();
-
-  ctx.fillStyle = '#475569';
-  ctx.font = '600 18px "IBM Plex Mono", monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText(`${student.studentNumber}.jpg`, x + w / 2, y + h * 0.88);
 }
 
 function drawSelectionBox(
