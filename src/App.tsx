@@ -23,6 +23,7 @@ import {
   Sliders,
   Type,
   Layout,
+  Layers,
   HardDrive,
   Database,
   UploadCloud,
@@ -61,11 +62,14 @@ import {
 import { CardCanvasPreview } from './components/CardCanvasPreview';
 import {
   downloadSampleExcelFile,
+  exportBatchCardsToCorelSvg,
+  exportBatchCardsToCorelZip,
   generateBatchStudentCardsPdf,
   normalizePhotoMatchKey,
   parseSpreadsheetFile,
 } from './utils/pdfExporter';
 import { generateStaffCards, generateVisitorCards } from './utils/visitorCards';
+import { getOfficialMebLogoSvgDataUrl } from './utils/officialMebLogo';
 
 type ActiveTab = 'data-matching' | 'template-studio' | 'visitor-staff' | 'batch-preview';
 
@@ -116,8 +120,10 @@ export default function App() {
     showCropMarks: true,
     cardSpacingMm: 4,
     qualityScale: 2,
+    exportFormat: 'vector-pdf', // Default to true vector PDF so text and paths are never rasterized/JPEG
   });
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [isExportingCorel, setIsExportingCorel] = useState(false);
   const [exportProgress, setExportProgress] = useState<{ current: number; total: number } | null>(
     null
   );
@@ -1223,6 +1229,47 @@ export default function App() {
     }
   };
 
+  // Export CorelDRAW A4 SVG (Montage with vector text & crop marks)
+  const handleExportCorelSvg = (side: 'front' | 'back' = 'front') => {
+    if (students.length === 0) return;
+    exportBatchCardsToCorelSvg(students, activeTemplate, pdfSettings, side);
+    setStatusBanner({
+      type: 'success',
+      message: `${students.length} öğrencinin ${
+        side === 'front' ? 'Ön Yüz' : 'Arka Yüz'
+      } CorelDRAW (.SVG) A4 montaj tabakası indirildi. CorelDRAW'da "Dosya -> Aç" (Ctrl+O) veya İçe Aktar (Ctrl+I) ile doğrudan açabilirsiniz.`,
+    });
+  };
+
+  // Export CorelDRAW Full ZIP Package (individual CR80 SVGs + A4 montage SVGs + guide)
+  const handleExportCorelZip = async () => {
+    if (students.length === 0 || isExportingCorel) return;
+    setIsExportingCorel(true);
+    setExportProgress({ current: 1, total: 2 });
+    try {
+      await exportBatchCardsToCorelZip(
+        students,
+        activeTemplate,
+        activeTemplate.enableBackSide,
+        (current, total) => {
+          setExportProgress({ current, total });
+        }
+      );
+      setStatusBanner({
+        type: 'success',
+        message: `${students.length} öğrencinin tek tek CR80 (85.6×54mm) ve A4 montajlı tüm vektörel kartları CorelDRAW ZIP paketi olarak indirildi.`,
+      });
+    } catch {
+      setStatusBanner({
+        type: 'warning',
+        message: 'CorelDRAW arşivi oluşturulurken bir hata meydana geldi.',
+      });
+    } finally {
+      setIsExportingCorel(false);
+      setExportProgress(null);
+    }
+  };
+
   const previewStudent = students[previewStudentIndex] ||
     students[0] || {
       id: 'preview',
@@ -1528,6 +1575,16 @@ export default function App() {
           )}
           <button
             type="button"
+            disabled={isExportingCorel || students.length === 0}
+            onClick={handleExportCorelZip}
+            className="hidden lg:inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-amber-950 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg transition-colors whitespace-nowrap shadow-2xs cursor-pointer"
+            title="CorelDRAW için 100% Vektörel SVG ve A4 Montaj Paketi (.ZIP)"
+          >
+            <Layers className="w-3.5 h-3.5 text-amber-700" />
+            <span>{isExportingCorel ? 'Corel Hazırlanıyor...' : 'CorelDRAW (.SVG)'}</span>
+          </button>
+          <button
+            type="button"
             disabled={isExportingPdf || students.length === 0}
             onClick={() => handleExportBatchPdf(false)}
             className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors whitespace-nowrap shadow-xs cursor-pointer"
@@ -1535,7 +1592,7 @@ export default function App() {
             <Download className="w-4 h-4" />
             {isExportingPdf && exportProgress
               ? `PDF (${exportProgress.current}/${exportProgress.total})`
-              : `Toplu PDF (${students.length} ${activeTemplate.enableBackSide ? 'Çift Yön' : 'Kart'})`}
+              : `Vektörel PDF (${students.length} ${activeTemplate.enableBackSide ? 'Çift Yön' : 'Kart'})`}
           </button>
         </div>
       </header>
@@ -3039,9 +3096,15 @@ export default function App() {
                   </div>
 
                   <div className="space-y-2">
-                    <label className="block text-xs font-semibold text-slate-700">
-                      Kurumsal Renkler & Okul Logosu (PNG)
-                    </label>
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-semibold text-slate-700">
+                        Kurumsal Renkler & Okul Amblemi
+                      </label>
+                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                        600 DPI Ultra-HD
+                      </span>
+                    </div>
+
                     <div className="flex items-center gap-2">
                       <input
                         type="color"
@@ -3078,7 +3141,7 @@ export default function App() {
                         }}
                         className="flex-1 px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg whitespace-nowrap cursor-pointer"
                       >
-                        {currentStudioTemplate.schoolLogoUrl ? 'Logoyu Değiştir' : '+ Okul Logosu (PNG)'}
+                        {currentStudioTemplate.schoolLogoUrl ? 'Logoyu Değiştir' : '+ Kendi Logonuzu Yükleyin'}
                       </button>
                       {currentStudioTemplate.schoolLogoUrl && (
                         <button
@@ -3096,6 +3159,31 @@ export default function App() {
                         </button>
                       )}
                     </div>
+
+                    {/* One-Click Official MEB High-Definition Vector Emblem Preset */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const mebSvg = getOfficialMebLogoSvgDataUrl(
+                          currentStudioTemplate.primaryColor,
+                          currentStudioTemplate.accentColor
+                        );
+                        updateStudioTemplate((p) => ({
+                          ...p,
+                          schoolLogoUrl: mebSvg,
+                          schoolLogoStyle: 'badge',
+                          schoolLogoScale: Math.max(105, p.schoolLogoScale || 105),
+                        }));
+                        setStatusBanner({
+                          type: 'success',
+                          message: 'Vektörel Resmî T.C. Millî Eğitim Bakanlığı amblemi yüklendi (Ultra-HD, sınırsız çözünürlükte jilet gibi net).',
+                        });
+                      }}
+                      className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                      ⭐ Resmî Vektörel MEB Logosu Ekle (Ultra-HD)
+                    </button>
 
                     {/* Logo Clarity / Contrast Badge Controls */}
                     {currentStudioTemplate.schoolLogoUrl && (
@@ -3147,8 +3235,8 @@ export default function App() {
                           <div className="flex items-center gap-2">
                             <input
                               type="range"
-                              min={75}
-                              max={140}
+                              min={60}
+                              max={220}
                               step={5}
                               value={currentStudioTemplate.schoolLogoScale || 100}
                               onChange={(e) =>
@@ -3159,14 +3247,14 @@ export default function App() {
                               }
                               className="w-24 accent-blue-600"
                             />
-                            <span className="font-mono text-blue-700 font-bold w-10 text-right">
+                            <span className="font-mono text-blue-700 font-bold w-12 text-right">
                               %{currentStudioTemplate.schoolLogoScale || 100}
                             </span>
                           </div>
                         </div>
 
-                        <p className="text-[10px] text-blue-800 leading-tight">
-                          İpucu: Yüklediğiniz PNG okul logosu şeffaf zeminli ise koyu alanlarda net okunabilmesi için &apos;Beyaz Rozet&apos; modu tavsiye edilir.
+                        <p className="text-[10px] text-blue-900 leading-relaxed">
+                          ✓ <strong>Çözünürlük Motoru:</strong> Çok adımlı mipmapping ve kayıpsız PNG PDF çıktısı etkindir. Kendi logonuzu yüklerken de 500+ piksel şeffaf PNG tercih ederek maksimum netlik elde edebilirsiniz.
                         </p>
                       </div>
                     )}
@@ -4569,32 +4657,124 @@ export default function App() {
 
                     {/* Logo & Background Uploads */}
                     <div className="pt-3 border-t border-slate-200 space-y-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-xs font-bold text-slate-800">Kurumsal Logo (PNG):</span>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => visitorLogoInputRef.current?.click()}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg cursor-pointer"
-                          >
-                            <Upload className="w-3.5 h-3.5" />
-                            {currentVisitorOrStaffTemplate.schoolLogoUrl ? 'Logoyu Değiştir' : '+ Logo Yükle'}
-                          </button>
-                          {currentVisitorOrStaffTemplate.schoolLogoUrl && (
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs font-bold text-slate-800">Kurumsal Amblem / Logo:</span>
+                          <div className="flex items-center gap-2">
                             <button
                               type="button"
-                              onClick={() =>
-                                updateCurrentVisitorOrStaffTemplate((p) => ({
-                                  ...p,
-                                  schoolLogoUrl: undefined,
-                                }))
-                              }
-                              className="px-2 py-1.5 text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg"
+                              onClick={() => visitorLogoInputRef.current?.click()}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg cursor-pointer"
                             >
-                              Kaldır
+                              <Upload className="w-3.5 h-3.5" />
+                              {currentVisitorOrStaffTemplate.schoolLogoUrl ? 'Logoyu Değiştir' : '+ Logo Yükle (PNG)'}
                             </button>
-                          )}
+                            {currentVisitorOrStaffTemplate.schoolLogoUrl && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateCurrentVisitorOrStaffTemplate((p) => ({
+                                    ...p,
+                                    schoolLogoUrl: undefined,
+                                  }))
+                                }
+                                className="px-2 py-1.5 text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg cursor-pointer"
+                              >
+                                Kaldır
+                              </button>
+                            )}
+                          </div>
                         </div>
+
+                        {/* One-click vector MEB preset for visitor/staff cards */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const mebSvg = getOfficialMebLogoSvgDataUrl(
+                              currentVisitorOrStaffTemplate.primaryColor,
+                              currentVisitorOrStaffTemplate.accentColor
+                            );
+                            updateCurrentVisitorOrStaffTemplate((p) => ({
+                              ...p,
+                              schoolLogoUrl: mebSvg,
+                              schoolLogoStyle: 'badge',
+                              schoolLogoScale: Math.max(105, p.schoolLogoScale || 105),
+                            }));
+                            setStatusBanner({
+                              type: 'success',
+                              message: 'Ziyaretçi/Görevli kartına vektörel resmî MEB amblemi uygulandı (Ultra-HD).',
+                            });
+                          }}
+                          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg transition-colors cursor-pointer"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                          ⭐ Resmî Vektörel MEB Logosu (Ultra-HD)
+                        </button>
+
+                        {/* Visitor/Staff Logo Controls */}
+                        {currentVisitorOrStaffTemplate.schoolLogoUrl && (
+                          <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-lg space-y-2 text-xs">
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold text-blue-900">Rozet Modu:</span>
+                              <div className="flex items-center bg-white rounded border border-blue-200 p-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    updateCurrentVisitorOrStaffTemplate((p) => ({
+                                      ...p,
+                                      schoolLogoStyle: 'badge',
+                                    }))
+                                  }
+                                  className={`px-2 py-0.5 rounded font-semibold cursor-pointer ${
+                                    (currentVisitorOrStaffTemplate.schoolLogoStyle ?? 'badge') === 'badge'
+                                      ? 'bg-blue-600 text-white'
+                                      : 'text-slate-600'
+                                  }`}
+                                >
+                                  Beyaz Rozet
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    updateCurrentVisitorOrStaffTemplate((p) => ({
+                                      ...p,
+                                      schoolLogoStyle: 'transparent',
+                                    }))
+                                  }
+                                  className={`px-2 py-0.5 rounded font-semibold cursor-pointer ${
+                                    currentVisitorOrStaffTemplate.schoolLogoStyle === 'transparent'
+                                      ? 'bg-blue-600 text-white'
+                                      : 'text-slate-600'
+                                  }`}
+                                >
+                                  Şeffaf
+                                </button>
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-700 font-medium">Büyüklük:</span>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="range"
+                                  min={60}
+                                  max={220}
+                                  step={5}
+                                  value={currentVisitorOrStaffTemplate.schoolLogoScale || 100}
+                                  onChange={(e) =>
+                                    updateCurrentVisitorOrStaffTemplate((p) => ({
+                                      ...p,
+                                      schoolLogoScale: parseInt(e.target.value, 10),
+                                    }))
+                                  }
+                                  className="w-24 accent-blue-600"
+                                />
+                                <span className="font-mono text-blue-700 font-bold w-12 text-right">
+                                  %{currentVisitorOrStaffTemplate.schoolLogoScale || 100}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* Custom Template Background */}
@@ -5346,16 +5526,17 @@ export default function App() {
                   <span>Arka Yüzü Dahil Et (Çift Taraflı)</span>
                 </label>
 
+                {/* Layout Mode (A4 Grid vs Single CR80) */}
                 <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
                   <button
                     type="button"
                     onClick={() =>
                       setPdfSettings((s) => ({ ...s, layoutMode: 'a4-grid' }))
                     }
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap cursor-pointer ${
                       pdfSettings.layoutMode === 'a4-grid'
                         ? 'bg-white text-slate-900 shadow-xs'
-                        : 'text-slate-600'
+                        : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     A4 Çoklu Sayfa (
@@ -5370,39 +5551,101 @@ export default function App() {
                     onClick={() =>
                       setPdfSettings((s) => ({ ...s, layoutMode: 'single-card' }))
                     }
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap cursor-pointer ${
                       pdfSettings.layoutMode === 'single-card'
                         ? 'bg-white text-slate-900 shadow-xs'
-                        : 'text-slate-600'
+                        : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     Tekli Kart (PVC Yazıcı)
                   </button>
                 </div>
 
+                {/* PDF Engine: Vector (Real text/paths) vs Raster (600 DPI) */}
+                <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => setPdfSettings((s) => ({ ...s, exportFormat: 'vector-pdf' }))}
+                    className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                      pdfSettings.exportFormat !== 'raster-pdf'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                    title="Kimlik üzerindeki metinler ve çizgiler gerçek vektör olarak basılır. JPEG/pikselleşme olmaz, matbaa ve Corel uyumludur."
+                  >
+                    ✨ Vektörel PDF
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPdfSettings((s) => ({ ...s, exportFormat: 'raster-pdf' }))}
+                    className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                      pdfSettings.exportFormat === 'raster-pdf'
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                    title="600 DPI kayıpsız PNG raster baskı"
+                  >
+                    Ultra-HD (600 DPI)
+                  </button>
+                </div>
+
+                {/* CorelDRAW Direct Exports (.SVG & .ZIP) */}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={students.length === 0}
+                    onClick={() => handleExportCorelSvg('front')}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-amber-950 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-xl shadow-2xs transition-colors cursor-pointer whitespace-nowrap"
+                    title="CorelDRAW için kesim kılavuzlu A4 montaj tabakası (.SVG vektörel dosya)"
+                  >
+                    <Layers className="w-3.5 h-3.5 text-amber-700" />
+                    <span>CorelDRAW A4 (.SVG)</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isExportingCorel || students.length === 0}
+                    onClick={handleExportCorelZip}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-amber-950 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-xl shadow-2xs transition-colors cursor-pointer whitespace-nowrap"
+                    title="Tüm öğrencilerin tek tek CR80 (85.6x54mm) vektörel SVG kartlarını ve A4 montaj tabakalarını içeren tam ZIP paketi"
+                  >
+                    <Download className="w-3.5 h-3.5 text-amber-700" />
+                    <span>CorelDRAW Paketi (.ZIP)</span>
+                  </button>
+                </div>
+
                 {/* Sadece Fotoğraflı Kartları İndir Butonu */}
-                <button
-                  type="button"
-                  disabled={isExportingPdf || matchedPhotosCount === 0}
-                  onClick={() => handleExportBatchPdf(true)}
-                  className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-xl shadow-xs transition-colors whitespace-nowrap cursor-pointer"
-                  title="Yalnızca fotoğrafı yüklenmiş ve eşleşmiş olan öğrencilerin kimlik kartlarını PDF olarak yazdırır"
-                >
-                  <ImageIcon className="w-4 h-4" />
-                  <span>Sadece Fotoğraflıları İndir ({matchedPhotosCount})</span>
-                </button>
+                {matchedPhotosCount > 0 && (
+                  <button
+                    type="button"
+                    disabled={isExportingPdf}
+                    onClick={() => handleExportBatchPdf(true)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-xl shadow-xs transition-colors whitespace-nowrap cursor-pointer"
+                    title="Yalnızca fotoğrafı yüklenmiş ve eşleşmiş olan öğrencilerin kimlik kartlarını PDF olarak yazdırır"
+                  >
+                    <ImageIcon className="w-4 h-4" />
+                    <span>Fotoğraflıları İndir ({matchedPhotosCount})</span>
+                  </button>
+                )}
 
                 <button
                   type="button"
                   disabled={isExportingPdf || students.length === 0}
                   onClick={() => handleExportBatchPdf(false)}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-xl shadow-xs transition-colors whitespace-nowrap cursor-pointer"
+                  className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-xl shadow-xs transition-colors whitespace-nowrap cursor-pointer"
                 >
                   <Download className="w-4 h-4" />
                   {isExportingPdf && exportProgress
                     ? `PDF Hazırlanıyor (${exportProgress.current}/${exportProgress.total})`
                     : `Tümünü PDF İndir (${students.length} Öğrenci)`}
                 </button>
+              </div>
+
+              {/* Resolution & Vector Architecture Note */}
+              <div className="w-full mt-2 p-3 bg-blue-50/90 border border-blue-200 rounded-xl flex items-start gap-2.5 text-xs text-blue-950">
+                <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                <div className="leading-relaxed">
+                  <strong>Vektörel Çıktı & CorelDRAW Uyumluluğu Aktif:</strong> Kimlik üzerindeki isim, okul adı, sınıf, numara ve barkodlar artık JPEG/piksel resmi olarak değil, <strong>doğrudan vektörel metin ve bezier eğrileri</strong> olarak dışa aktarılır. CorelDRAW (.SVG) dosyaları matbaalarda <em>(Ctrl+O / Ctrl+I)</em> ile anında açılır, yazılar düzenlenebilir veya <em>(Ctrl+Q)</em> ile eğrilere dönüştürülebilir.
+                </div>
               </div>
             </div>
 

@@ -107,4 +107,5 @@ export interface PdfExportSettings {
   showCropMarks: boolean;
   cardSpacingMm: number;
   qualityScale: number;
+  exportFormat?: 'vector-pdf' | 'raster-pdf';
 }

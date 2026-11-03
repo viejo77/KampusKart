@@ -44,10 +44,12 @@ export const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const dpr = typeof window !== 'undefined' ? Math.min(2, window.devicePixelRatio || 1) : 1;
     renderStudentCardToCanvas(canvas, student, template, {
       side,
       selectedField,
       showInteractiveGuides: interactive,
+      scale: dpr,
     });
   }, [student, template, side, selectedField, interactive]);
 

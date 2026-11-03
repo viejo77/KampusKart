@@ -82,6 +82,63 @@ function drawSchoolEmblem(
   ctx.restore();
 }
 
+/**
+ * High-definition multi-step downsampling (halving downsampling / mipmapping).
+ * HTML5 canvas direct downsampling from large images to small badges skips pixels and blurs.
+ * Stepped halving downsamples in intermediate 50% steps, resulting in razor-sharp details and antialiased edges.
+ */
+function drawCrispLogo(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  dx: number,
+  dy: number,
+  dw: number,
+  dh: number
+) {
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+
+  let curW = img.naturalWidth || img.width;
+  let curH = img.naturalHeight || img.height;
+
+  // If source is substantially larger than target (> 1.4x), perform stepped halving downsampling
+  if (curW > dw * 1.4 && curH > dh * 1.4 && typeof document !== 'undefined') {
+    let oc = document.createElement('canvas');
+    let octx = oc.getContext('2d');
+    if (octx) {
+      octx.imageSmoothingEnabled = true;
+      octx.imageSmoothingQuality = 'high';
+
+      oc.width = curW;
+      oc.height = curH;
+      octx.drawImage(img, 0, 0, curW, curH);
+
+      while (curW * 0.5 > dw * 1.15 && curH * 0.5 > dh * 1.15) {
+        curW = Math.round(curW * 0.5);
+        curH = Math.round(curH * 0.5);
+
+        const nextCanvas = document.createElement('canvas');
+        nextCanvas.width = curW;
+        nextCanvas.height = curH;
+        const nextCtx = nextCanvas.getContext('2d');
+        if (!nextCtx) break;
+        nextCtx.imageSmoothingEnabled = true;
+        nextCtx.imageSmoothingQuality = 'high';
+        nextCtx.drawImage(oc, 0, 0, curW, curH);
+        oc = nextCanvas;
+      }
+
+      ctx.drawImage(oc, dx, dy, dw, dh);
+      ctx.restore();
+      return;
+    }
+  }
+
+  ctx.drawImage(img, dx, dy, dw, dh);
+  ctx.restore();
+}
+
 function drawSimulatedBarcode(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -369,7 +426,7 @@ async function renderCardWatermark(
         const aspect = logoImg.width / Math.max(1, logoImg.height);
         const drawW = aspect >= 1 ? targetSize : targetSize * aspect;
         const drawH = aspect >= 1 ? targetSize / aspect : targetSize;
-        ctx.drawImage(logoImg, -drawW / 2, -drawH / 2, drawW, drawH);
+        drawCrispLogo(ctx, logoImg, -drawW / 2, -drawH / 2, drawW, drawH);
       } else {
         drawSchoolEmblem(
           ctx,
@@ -423,20 +480,28 @@ export async function renderStudentCardToCanvas(
     side?: 'front' | 'back';
     selectedField?: FieldKey | null;
     showInteractiveGuides?: boolean;
+    scale?: number;
   }
 ): Promise<void> {
   const side = options?.side || 'front';
   const isLandscape = template.orientation === 'landscape';
   const W = isLandscape ? CARD_WIDTH_LANDSCAPE : CARD_HEIGHT_LANDSCAPE;
   const H = isLandscape ? CARD_HEIGHT_LANDSCAPE : CARD_WIDTH_LANDSCAPE;
+  const renderScale = Math.max(1, Math.min(4, options?.scale || 1));
+  const pixelW = Math.round(W * renderScale);
+  const pixelH = Math.round(H * renderScale);
 
-  if (canvas.width !== W) canvas.width = W;
-  if (canvas.height !== H) canvas.height = H;
+  if (canvas.width !== pixelW) canvas.width = pixelW;
+  if (canvas.height !== pixelH) canvas.height = pixelH;
 
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
 
-  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  ctx.clearRect(0, 0, pixelW, pixelH);
+  if (renderScale !== 1) {
+    ctx.scale(renderScale, renderScale);
+  }
 
   // ================= BACK SIDE RENDERING =================
   if (side === 'back') {
@@ -579,6 +644,7 @@ export async function renderStudentCardToCanvas(
 
     // Render Overlay-layer Watermark on Back Side if enabled
     await renderCardWatermark(ctx, template, W, H, 'back', 'overlay');
+    ctx.restore();
     return;
   }
 
@@ -597,19 +663,19 @@ export async function renderStudentCardToCanvas(
   // Render Background-layer Watermark on Front Side (behind student photo and text fields)
   await renderCardWatermark(ctx, template, W, H, 'front', 'background');
 
-  if (template.schoolLogoUrl && !template.customBackgroundUrl) {
+  if (template.schoolLogoUrl) {
     try {
       const logoImg = await loadImage(template.schoolLogoUrl);
       const isModern = template.id === 'modern-campus';
       const scaleMultiplier = (template.schoolLogoScale || 100) / 100;
-      const baseLogoSize = isLandscape ? (isModern ? H * 0.165 : H * 0.155) : W * 0.16;
+      const baseLogoSize = isLandscape ? (isModern ? H * 0.18 : H * 0.17) : W * 0.18;
       const logoSize = baseLogoSize * scaleMultiplier;
       const lx = isModern
         ? W * 0.042
         : isLandscape
-        ? W * 0.048
+        ? W * 0.046
         : W * 0.055;
-      const ly = isModern ? H * 0.028 : H * 0.035;
+      const ly = isModern ? H * 0.026 : H * 0.032;
 
       const cx = lx + logoSize / 2;
       const cy = ly + logoSize / 2;
@@ -634,12 +700,9 @@ export async function renderStudentCardToCanvas(
       }
 
       // Draw logo preserving natural aspect ratio inside badge with maximum crispness
-      ctx.save();
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
       const aspect = logoImg.width / Math.max(1, logoImg.height);
-      const maxInnerW = useBadge ? logoSize * 0.84 : logoSize;
-      const maxInnerH = useBadge ? logoSize * 0.84 : logoSize;
+      const maxInnerW = useBadge ? logoSize * 0.88 : logoSize;
+      const maxInnerH = useBadge ? logoSize * 0.88 : logoSize;
       let drawW = maxInnerW;
       let drawH = maxInnerH;
       if (aspect >= 1) {
@@ -648,8 +711,7 @@ export async function renderStudentCardToCanvas(
         drawW = maxInnerH * aspect;
       }
 
-      ctx.drawImage(logoImg, cx - drawW / 2, cy - drawH / 2, drawW, drawH);
-      ctx.restore();
+      drawCrispLogo(ctx, logoImg, cx - drawW / 2, cy - drawH / 2, drawW, drawH);
     } catch {
       // ignore logo error
     }
@@ -708,7 +770,7 @@ export async function renderStudentCardToCanvas(
             drawH = pw / imgRatio;
             offsetY = py - (drawH - ph) / 2;
           }
-          ctx.drawImage(photoImg, offsetX, offsetY, drawW, drawH);
+          drawCrispLogo(ctx, photoImg, offsetX, offsetY, drawW, drawH);
         } catch {
           drawFallbackAvatar(ctx, px, py, pw, ph, student);
         }
@@ -1003,6 +1065,7 @@ export async function renderStudentCardToCanvas(
 
   // Render Overlay-layer Watermark on Front Side (on top of card if layer === 'overlay')
   await renderCardWatermark(ctx, template, W, H, 'front', 'overlay');
+  ctx.restore();
 }
 
 function drawFallbackAvatar(

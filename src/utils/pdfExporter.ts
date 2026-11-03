@@ -1,8 +1,47 @@
 import { jsPDF } from 'jspdf';
+import { svg2pdf } from 'svg2pdf.js';
 import * as XLSX from 'xlsx';
 import { calculateValidityPeriodByClass, inferDepartmentAndStudentNumber } from '../constants';
 import { CardTemplate, PdfExportSettings, StudentRecord } from '../types';
 import { renderStudentCardToCanvas } from './cardRenderer';
+import {
+  downloadFile,
+  exportCorelDrawZip,
+  generateA4SheetSvgString,
+  renderStudentCardToSvgString,
+} from './svgCardRenderer';
+
+/**
+ * Renders a student card as genuine PDF vector graphics (paths, texts, barcode lines)
+ * with high-resolution embedded portrait photos.
+ */
+async function renderCardVectorToPdf(
+  pdf: jsPDF,
+  student: StudentRecord,
+  template: CardTemplate,
+  side: 'front' | 'back',
+  x: number,
+  y: number,
+  w: number,
+  h: number
+): Promise<void> {
+  const svgStr = renderStudentCardToSvgString(student, template, {
+    side,
+    widthMm: w,
+    heightMm: h,
+  });
+
+  const parser = new DOMParser();
+  const svgDoc = parser.parseFromString(svgStr, 'image/svg+xml');
+  const svgEl = svgDoc.documentElement;
+
+  await svg2pdf(svgEl, pdf, {
+    x,
+    y,
+    width: w,
+    height: h,
+  });
+}
 
 export async function generateBatchStudentCardsPdf(
   students: StudentRecord[],
@@ -18,7 +57,42 @@ export async function generateBatchStudentCardsPdf(
   const cardWidthMm = isLandscapeCard ? 85.6 : 54.0;
   const cardHeightMm = isLandscapeCard ? 54.0 : 85.6;
 
+  const isVector = settings.exportFormat !== 'raster-pdf';
+  const exportScale = Math.max(1, Math.min(3, settings.qualityScale || 2));
   const offscreenCanvas = document.createElement('canvas');
+
+  const renderCardSlot = async (
+    targetPdf: jsPDF,
+    student: StudentRecord,
+    side: 'front' | 'back',
+    x: number,
+    y: number
+  ) => {
+    if (isVector) {
+      try {
+        await renderCardVectorToPdf(
+          targetPdf,
+          student,
+          template,
+          side,
+          x,
+          y,
+          cardWidthMm,
+          cardHeightMm
+        );
+        return;
+      } catch (err) {
+        console.warn('Vector PDF render fallback to canvas:', err);
+      }
+    }
+
+    await renderStudentCardToCanvas(offscreenCanvas, student, template, {
+      side,
+      scale: exportScale,
+    });
+    const imgData = offscreenCanvas.toDataURL('image/png');
+    targetPdf.addImage(imgData, 'PNG', x, y, cardWidthMm, cardHeightMm, undefined, 'FAST');
+  };
 
   if (settings.layoutMode === 'single-card') {
     // 1 card per page at exact CR80 dimensions (for direct PVC card printers)
@@ -33,22 +107,19 @@ export async function generateBatchStudentCardsPdf(
       if (i > 0) {
         pdf.addPage([cardWidthMm, cardHeightMm], isLandscapeCard ? 'landscape' : 'portrait');
       }
-      await renderStudentCardToCanvas(offscreenCanvas, students[i], template, { side: 'front' });
-      const frontImgData = offscreenCanvas.toDataURL('image/jpeg', 0.95);
-      pdf.addImage(frontImgData, 'JPEG', 0, 0, cardWidthMm, cardHeightMm);
+      await renderCardSlot(pdf, students[i], 'front', 0, 0);
 
       if (includeBack) {
         pdf.addPage([cardWidthMm, cardHeightMm], isLandscapeCard ? 'landscape' : 'portrait');
-        await renderStudentCardToCanvas(offscreenCanvas, students[i], template, { side: 'back' });
-        const backImgData = offscreenCanvas.toDataURL('image/jpeg', 0.95);
-        pdf.addImage(backImgData, 'JPEG', 0, 0, cardWidthMm, cardHeightMm);
+        await renderCardSlot(pdf, students[i], 'back', 0, 0);
       }
 
       onProgress?.(i + 1, students.length);
     }
 
+    const typePrefix = isVector ? 'Vektorel_PDF' : 'HD_PDF';
     const suffix = includeBack ? 'Cift_Yonlu_PVC' : 'Tek_Yonlu_PVC';
-    pdf.save(`Ogrenci_Kimlik_Kartlari_${suffix}_${students.length}_Ogrenci.pdf`);
+    pdf.save(`Ogrenci_Kimlik_${typePrefix}_${suffix}_${students.length}_Ogrenci.pdf`);
     return;
   }
 
@@ -113,11 +184,7 @@ export async function generateBatchStudentCardsPdf(
       const x = startX + col * (cardWidthMm + gap);
       const y = startY + row * (cardHeightMm + gap);
 
-      await renderStudentCardToCanvas(offscreenCanvas, chunkStudents[j], template, {
-        side: 'front',
-      });
-      const imgData = offscreenCanvas.toDataURL('image/jpeg', 0.95);
-      pdf.addImage(imgData, 'JPEG', x, y, cardWidthMm, cardHeightMm);
+      await renderCardSlot(pdf, chunkStudents[j], 'front', x, y);
       drawCropMarksAt(x, y);
 
       if (!includeBack) {
@@ -136,11 +203,7 @@ export async function generateBatchStudentCardsPdf(
         const x = startX + mirroredCol * (cardWidthMm + gap);
         const y = startY + row * (cardHeightMm + gap);
 
-        await renderStudentCardToCanvas(offscreenCanvas, chunkStudents[j], template, {
-          side: 'back',
-        });
-        const backImgData = offscreenCanvas.toDataURL('image/jpeg', 0.95);
-        pdf.addImage(backImgData, 'JPEG', x, y, cardWidthMm, cardHeightMm);
+        await renderCardSlot(pdf, chunkStudents[j], 'back', x, y);
         drawCropMarksAt(x, y);
 
         onProgress?.(chunkIdx * cardsPerPage + j + 1, students.length);
@@ -148,8 +211,46 @@ export async function generateBatchStudentCardsPdf(
     }
   }
 
-  const suffix = includeBack ? 'Cift_Yonlu_A4' : 'Tek_Yonlu_A4';
-  pdf.save(`Toplu_Ogrenci_Kimlik_${suffix}_${students.length}_Ogrenci.pdf`);
+  const typePrefix = isVector ? 'Vektorel_A4' : 'HD_A4';
+  const suffix = includeBack ? 'Cift_Yonlu' : 'Tek_Yonlu';
+  pdf.save(`Toplu_Ogrenci_Kimlik_${typePrefix}_${suffix}_${students.length}_Ogrenci.pdf`);
+}
+
+/**
+ * Directly exports an A4 Sheet (.SVG) for CorelDRAW with vector text, paths, and crop marks.
+ */
+export function exportBatchCardsToCorelSvg(
+  students: StudentRecord[],
+  template: CardTemplate,
+  settings: PdfExportSettings,
+  side: 'front' | 'back' = 'front'
+): void {
+  if (students.length === 0) return;
+  const svgContent = generateA4SheetSvgString(students, template, {
+    side,
+    showCropMarks: settings.showCropMarks,
+    cardSpacingMm: settings.cardSpacingMm,
+  });
+  const sideName = side === 'front' ? 'On_Yuz' : 'Arka_Yuz';
+  const blob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
+  downloadFile(blob, `CorelDraw_A4_Baski_Montaj_${sideName}_${students.length}_Ogrenci.svg`);
+}
+
+/**
+ * Directly exports a comprehensive ZIP archive containing individual CR80 vector .SVG cards
+ * and A4 montage sheets ready for CorelDRAW import and plate printing.
+ */
+export async function exportBatchCardsToCorelZip(
+  students: StudentRecord[],
+  template: CardTemplate,
+  includeBack: boolean,
+  onProgress?: (current: number, total: number) => void
+): Promise<void> {
+  if (students.length === 0) return;
+  onProgress?.(1, 2);
+  const blob = await exportCorelDrawZip(students, template, includeBack);
+  onProgress?.(2, 2);
+  downloadFile(blob, `CorelDraw_Vektorel_Baski_Paketi_${students.length}_Ogrenci.zip`);
 }
 
 function normalizeHeaderKey(raw: string): string {
