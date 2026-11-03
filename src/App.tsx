@@ -120,7 +120,7 @@ export default function App() {
     showCropMarks: true,
     cardSpacingMm: 4,
     qualityScale: 2,
-    exportFormat: 'vector-pdf', // Default to true vector PDF so text and paths are never rasterized/JPEG
+    exportFormat: 'raster-pdf', // Default to 600 DPI Ultra-HD lossless PNG: 100% Turkish character fidelity (Ğ, ğ, İ, ı, Ş, ş), zero text displacement, zero JPEG degradation
   });
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isExportingCorel, setIsExportingCorel] = useState(false);
@@ -5561,31 +5561,31 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* PDF Engine: Vector (Real text/paths) vs Raster (600 DPI) */}
+                {/* PDF Engine: Raster (600 DPI Ultra-HD with full Turkish support) vs Vector */}
                 <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
-                  <button
-                    type="button"
-                    onClick={() => setPdfSettings((s) => ({ ...s, exportFormat: 'vector-pdf' }))}
-                    className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
-                      pdfSettings.exportFormat !== 'raster-pdf'
-                        ? 'bg-blue-600 text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                    title="Kimlik üzerindeki metinler ve çizgiler gerçek vektör olarak basılır. JPEG/pikselleşme olmaz, matbaa ve Corel uyumludur."
-                  >
-                    ✨ Vektörel PDF
-                  </button>
                   <button
                     type="button"
                     onClick={() => setPdfSettings((s) => ({ ...s, exportFormat: 'raster-pdf' }))}
                     className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
                       pdfSettings.exportFormat === 'raster-pdf'
-                        ? 'bg-white text-slate-900 shadow-xs'
+                        ? 'bg-blue-600 text-white shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
-                    title="600 DPI kayıpsız PNG raster baskı"
+                    title="Önerilen: 600 DPI kayıpsız PNG baskı motoru. Tüm Türkçe karakterleri (ç, Ç, ğ, Ğ, ı, İ, ö, Ö, ş, Ş, ü, Ü) eksiksiz, önizleme ile birebir aynı ve sıfır kayma ile yazdırır."
                   >
-                    Ultra-HD (600 DPI)
+                    🏆 Ultra-HD PDF (600 DPI)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPdfSettings((s) => ({ ...s, exportFormat: 'vector-pdf' }))}
+                    className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                      pdfSettings.exportFormat === 'vector-pdf'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                    title="Vektörel PDF motoru"
+                  >
+                    Vektörel PDF
                   </button>
                 </div>
 
@@ -5644,7 +5644,7 @@ export default function App() {
               <div className="w-full mt-2 p-3 bg-blue-50/90 border border-blue-200 rounded-xl flex items-start gap-2.5 text-xs text-blue-950">
                 <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
                 <div className="leading-relaxed">
-                  <strong>Vektörel Çıktı & CorelDRAW Uyumluluğu Aktif:</strong> Kimlik üzerindeki isim, okul adı, sınıf, numara ve barkodlar artık JPEG/piksel resmi olarak değil, <strong>doğrudan vektörel metin ve bezier eğrileri</strong> olarak dışa aktarılır. CorelDRAW (.SVG) dosyaları matbaalarda <em>(Ctrl+O / Ctrl+I)</em> ile anında açılır, yazılar düzenlenebilir veya <em>(Ctrl+Q)</em> ile eğrilere dönüştürülebilir.
+                  <strong>Türkçe Karakter & Yüksek Çözünürlük Koruması:</strong> PDF çıktılarında <strong>600 DPI Ultra-HD kayıpsız motor</strong> kullanılır; tüm Türkçe karakterler (ç, Ç, ğ, Ğ, ı, İ, ö, Ö, ş, Ş, ü, Ü) önizleme ile birebir aynı konumda, sıfır kayma ve sıfır JPEG lekesiyle basılır. CorelDRAW ve matbaa montajı için <strong>CorelDRAW A4 (.SVG)</strong> veya <strong>CorelDRAW Paketi (.ZIP)</strong> ile tüm kartları tabaka halinde ve bağımsız vektörel katmanlar olarak indirebilirsiniz.
                 </div>
               </div>
             </div>

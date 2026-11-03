@@ -57,7 +57,7 @@ export async function generateBatchStudentCardsPdf(
   const cardWidthMm = isLandscapeCard ? 85.6 : 54.0;
   const cardHeightMm = isLandscapeCard ? 54.0 : 85.6;
 
-  const isVector = settings.exportFormat !== 'raster-pdf';
+  const isVector = settings.exportFormat === 'vector-pdf';
   const exportScale = Math.max(1, Math.min(3, settings.qualityScale || 2));
   const offscreenCanvas = document.createElement('canvas');
 
