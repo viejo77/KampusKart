@@ -1156,10 +1156,11 @@ export default function App() {
           type === 'visitor' ? 'Ziyaretçi' : 'Görevli'
         } Kartı (Tek Yüzlü) PDF olarak başarıyla indirildi.`,
       });
-    } catch {
+    } catch (err) {
+      console.error('Visitor/Staff export error:', err);
       setStatusBanner({
         type: 'warning',
-        message: 'PDF oluşturulurken bir hata meydana geldi.',
+        message: `PDF oluşturulurken hata: ${err instanceof Error ? err.message : String(err)}`,
       });
     } finally {
       setIsExportingPdf(false);
@@ -1218,10 +1219,11 @@ export default function App() {
           activeTemplate.enableBackSide ? 'çift taraflı (ön + arka yüz)' : 'tek taraflı (ön yüz)'
         } kimlik kartı PDF olarak başarıyla indirildi.`,
       });
-    } catch {
+    } catch (err) {
+      console.error('Batch export error:', err);
       setStatusBanner({
         type: 'warning',
-        message: 'PDF oluşturulurken bir hata meydana geldi.',
+        message: `PDF oluşturulurken hata: ${err instanceof Error ? err.message : String(err)}`,
       });
     } finally {
       setIsExportingPdf(false);

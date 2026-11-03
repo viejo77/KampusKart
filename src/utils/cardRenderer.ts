@@ -19,12 +19,27 @@ export function loadImage(url: string): Promise<HTMLImageElement> {
   }
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    // Only set crossOrigin for remote http(s) URLs. Setting it on data: or blob: URIs taints HTML5 canvas!
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      img.crossOrigin = 'anonymous';
+    }
     img.onload = () => {
       imageCache.set(url, img);
       resolve(img);
     };
-    img.onerror = (err) => reject(err);
+    img.onerror = (err) => {
+      if (img.crossOrigin) {
+        const fallback = new Image();
+        fallback.onload = () => {
+          imageCache.set(url, fallback);
+          resolve(fallback);
+        };
+        fallback.onerror = () => reject(err);
+        fallback.src = url;
+      } else {
+        reject(err);
+      }
+    };
     img.src = url;
   });
 }

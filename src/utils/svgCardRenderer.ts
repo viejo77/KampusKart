@@ -32,7 +32,7 @@ function renderCardBackgroundSvg(
   H: number
 ): string {
   if (template.customBackgroundUrl) {
-    return `<image href="${escapeXml(template.customBackgroundUrl)}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="none" />`;
+    return `<image href="${escapeXml(template.customBackgroundUrl)}" xlink:href="${escapeXml(template.customBackgroundUrl)}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="none" />`;
   }
 
   const bg = escapeXml(template.backgroundColor || '#ffffff');
@@ -96,7 +96,7 @@ function renderCardBackBackgroundSvg(
   isLandscape: boolean
 ): string {
   if (template.customBackBackgroundUrl) {
-    return `<image href="${escapeXml(template.customBackBackgroundUrl)}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="none" />`;
+    return `<image href="${escapeXml(template.customBackBackgroundUrl)}" xlink:href="${escapeXml(template.customBackBackgroundUrl)}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="none" />`;
   }
 
   const bg = escapeXml(template.backgroundColor || '#ffffff');
@@ -151,7 +151,7 @@ function renderSchoolLogoSvg(
   return `
     <g id="school-logo">
       ${badgeSvg}
-      <image href="${escapeXml(template.schoolLogoUrl)}" x="${logoX}" y="${logoY}" width="${innerSize}" height="${innerSize}" preserveAspectRatio="xMidYMid meet" />
+      <image href="${escapeXml(template.schoolLogoUrl)}" xlink:href="${escapeXml(template.schoolLogoUrl)}" x="${logoX}" y="${logoY}" width="${innerSize}" height="${innerSize}" preserveAspectRatio="xMidYMid meet" />
     </g>
   `;
 }
@@ -180,7 +180,7 @@ function renderWatermarkSvg(
       const size = Math.min(W, H) * (scalePct / 100) * scaleFactor;
       return `
         <g transform="translate(${cx}, ${cy}) rotate(${rotation})">
-          <image href="${escapeXml(template.schoolLogoUrl)}" x="${-size / 2}" y="${-size / 2}" width="${size}" height="${size}" preserveAspectRatio="xMidYMid meet" />
+          <image href="${escapeXml(template.schoolLogoUrl)}" xlink:href="${escapeXml(template.schoolLogoUrl)}" x="${-size / 2}" y="${-size / 2}" width="${size}" height="${size}" preserveAspectRatio="xMidYMid meet" />
         </g>
       `;
     }
@@ -321,7 +321,7 @@ export function renderStudentCardToSvgString(
         if (isPrincipal && template.principalSignatureUrl) {
           const maxW = pw * 0.75;
           const maxH = ph * 0.55;
-          sealOrSigSvg = `<image href="${escapeXml(template.principalSignatureUrl)}" x="${(px + (pw - maxW) / 2).toFixed(1)}" y="${(py + ph * 0.36).toFixed(1)}" width="${maxW.toFixed(1)}" height="${maxH.toFixed(1)}" preserveAspectRatio="xMidYMid meet" />`;
+          sealOrSigSvg = `<image href="${escapeXml(template.principalSignatureUrl)}" xlink:href="${escapeXml(template.principalSignatureUrl)}" x="${(px + (pw - maxW) / 2).toFixed(1)}" y="${(py + ph * 0.36).toFixed(1)}" width="${maxW.toFixed(1)}" height="${maxH.toFixed(1)}" preserveAspectRatio="xMidYMid meet" />`;
         } else if (isPrincipal) {
           const sealR = Math.min(pw, ph) * 0.24;
           const scx = px + pw * 0.76;
@@ -448,7 +448,7 @@ export function renderStudentCardToSvgString(
       let photoContentSvg = '';
       if (student.photoDataUrl) {
         photoContentSvg = `
-          <image href="${escapeXml(student.photoDataUrl)}" x="${px.toFixed(1)}" y="${py.toFixed(1)}" width="${pw.toFixed(1)}" height="${ph.toFixed(1)}" clip-path="url(#${clipId})" preserveAspectRatio="xMidYMid slice" />
+          <image href="${escapeXml(student.photoDataUrl)}" xlink:href="${escapeXml(student.photoDataUrl)}" x="${px.toFixed(1)}" y="${py.toFixed(1)}" width="${pw.toFixed(1)}" height="${ph.toFixed(1)}" clip-path="url(#${clipId})" preserveAspectRatio="xMidYMid slice" />
         `;
       } else {
         // Crisp vector silhouette fallback
