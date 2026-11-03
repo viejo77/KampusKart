@@ -13,6 +13,24 @@ import { CARD_HEIGHT_LANDSCAPE, CARD_WIDTH_LANDSCAPE } from './cardRenderer';
 export const CARD_WIDTH_MM_LANDSCAPE = 85.6;
 export const CARD_HEIGHT_MM_LANDSCAPE = 54.0;
 
+export const SVG_FONT_FAMILY = "NotoSans, Arial, 'Segoe UI', Tahoma, 'Plus Jakarta Sans', sans-serif";
+
+export function normalizeSvgFontWeight(weight?: string | number): 'normal' | 'bold' {
+  if (!weight) return 'normal';
+  const str = String(weight).toLowerCase();
+  if (
+    str === 'bold' ||
+    str === '700' ||
+    str === '800' ||
+    str === '900' ||
+    str === '600' ||
+    str.includes('bold')
+  ) {
+    return 'bold';
+  }
+  return 'normal';
+}
+
 export function escapeXml(str: string): string {
   if (!str) return '';
   return str
@@ -188,7 +206,7 @@ function renderWatermarkSvg(
     const fontSize = Math.max(18, Math.round(Math.min(W, H) * (scalePct / 100) * 0.34 * scaleFactor));
     return `
       <g transform="translate(${cx}, ${cy}) rotate(${rotation})">
-        <text x="0" y="0" font-family="Arial, 'Segoe UI', Tahoma, 'Plus Jakarta Sans', sans-serif" font-size="${fontSize}" font-weight="800" fill="${escapeXml(template.primaryColor)}" text-anchor="middle" dy="0.35em" letter-spacing="2">${text}</text>
+        <text x="0" y="0" font-family="${SVG_FONT_FAMILY}" font-size="${fontSize}" font-weight="bold" fill="${escapeXml(template.primaryColor)}" text-anchor="middle" dy="0.35em" letter-spacing="2">${text}</text>
       </g>
     `;
   };
@@ -314,7 +332,7 @@ export function renderStudentCardToSvgString(
         let linesSvg = '';
         lines.forEach((l, idx) => {
           const ly = py + 18 + idx * (field.fontSize + 4);
-          linesSvg += `<text x="${(px + pw / 2).toFixed(1)}" y="${ly.toFixed(1)}" font-family="Arial, 'Segoe UI', Tahoma, 'Plus Jakarta Sans', sans-serif" font-size="${field.fontSize}" font-weight="${field.fontWeight || '700'}" fill="${escapeXml(field.color || '#334155')}" text-anchor="middle">${escapeXml(l)}</text>`;
+          linesSvg += `<text x="${(px + pw / 2).toFixed(1)}" y="${ly.toFixed(1)}" font-family="${SVG_FONT_FAMILY}" font-size="${field.fontSize}" font-weight="${normalizeSvgFontWeight(field.fontWeight || '700')}" fill="${escapeXml(field.color || '#334155')}" text-anchor="middle">${escapeXml(l)}</text>`;
         });
 
         let sealOrSigSvg = '';
@@ -368,7 +386,7 @@ export function renderStudentCardToSvgString(
       if (field.showPrefix && field.prefixText) {
         const labelFontSize = Math.max(11, Math.round(field.fontSize * 0.62));
         const prefixBaselineY = py + Math.round(labelFontSize * 0.78);
-        prefixSvg = `<text x="${px.toFixed(1)}" y="${prefixBaselineY.toFixed(1)}" font-family="Arial, 'Segoe UI', Tahoma, 'Plus Jakarta Sans', sans-serif" font-size="${labelFontSize}" font-weight="600" fill="#64748b" text-anchor="${textAnchor}">${escapeXml(field.prefixText.toUpperCase())}</text>`;
+        prefixSvg = `<text x="${px.toFixed(1)}" y="${prefixBaselineY.toFixed(1)}" font-family="${SVG_FONT_FAMILY}" font-size="${labelFontSize}" font-weight="bold" fill="#64748b" text-anchor="${textAnchor}">${escapeXml(field.prefixText.toUpperCase())}</text>`;
         valueOffsetY = py + labelFontSize + 4;
       }
 
@@ -378,7 +396,7 @@ export function renderStudentCardToSvgString(
       lines.forEach((lineText, idx) => {
         const topY = valueOffsetY + idx * lineHeight;
         const baselineY = topY + Math.round(field.fontSize * 0.78);
-        linesSvg += `<text x="${px.toFixed(1)}" y="${baselineY.toFixed(1)}" font-family="Arial, 'Segoe UI', Tahoma, 'Plus Jakarta Sans', sans-serif" font-size="${field.fontSize}" font-weight="${field.fontWeight || '600'}" fill="${escapeXml(field.color || '#0f172a')}" text-anchor="${textAnchor}">${escapeXml(lineText)}</text>`;
+        linesSvg += `<text x="${px.toFixed(1)}" y="${baselineY.toFixed(1)}" font-family="${SVG_FONT_FAMILY}" font-size="${field.fontSize}" font-weight="${normalizeSvgFontWeight(field.fontWeight || '600')}" fill="${escapeXml(field.color || '#0f172a')}" text-anchor="${textAnchor}">${escapeXml(lineText)}</text>`;
       });
 
       fieldsSvg += `<g id="${prefix}-${key}">${prefixSvg}${linesSvg}</g>`;
@@ -397,7 +415,7 @@ export function renderStudentCardToSvgString(
       <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${W} ${H}" width="${widthMm}mm" height="${heightMm}mm" id="${prefix}">
         <defs>
           <style type="text/css">
-            text { font-family: Arial, 'Segoe UI', Tahoma, 'Plus Jakarta Sans', sans-serif; }
+            text { font-family: 'NotoSans', Arial, 'Segoe UI', Tahoma, 'Plus Jakarta Sans', sans-serif; }
           </style>
         </defs>
         ${innerSvg}
@@ -504,12 +522,12 @@ export function renderStudentCardToSvgString(
     if (field.showPrefix && field.prefixText) {
       const labelFontSize = Math.max(12, Math.round(field.fontSize * 0.56));
       const prefixBaselineY = py + Math.round(labelFontSize * 0.78);
-      prefixSvg = `<text x="${px.toFixed(1)}" y="${prefixBaselineY.toFixed(1)}" font-family="Arial, 'Segoe UI', Tahoma, 'Plus Jakarta Sans', sans-serif" font-size="${labelFontSize}" font-weight="600" fill="#64748b" text-anchor="${textAnchor}">${escapeXml(field.prefixText.toUpperCase())}</text>`;
+      prefixSvg = `<text x="${px.toFixed(1)}" y="${prefixBaselineY.toFixed(1)}" font-family="${SVG_FONT_FAMILY}" font-size="${labelFontSize}" font-weight="bold" fill="#64748b" text-anchor="${textAnchor}">${escapeXml(field.prefixText.toUpperCase())}</text>`;
       valueOffsetY = py + labelFontSize + 4;
     }
 
     const isNumeric = key === 'studentNumber';
-    const fontFamily = isNumeric ? "'IBM Plex Mono', 'Courier New', monospace" : "Arial, 'Segoe UI', Tahoma, 'Plus Jakarta Sans', sans-serif";
+    const fontFamily = isNumeric ? "'IBM Plex Mono', 'Courier New', monospace" : SVG_FONT_FAMILY;
 
     let lines: string[] = [];
     if (key === 'schoolName') {
@@ -533,7 +551,7 @@ export function renderStudentCardToSvgString(
     let linesSvg = '';
     lines.forEach((lineText, lineIdx) => {
       let targetFontSize = field.fontSize;
-      let targetWeight = field.fontWeight || '700';
+      let targetWeight = normalizeSvgFontWeight(field.fontWeight || '700');
       let lineAnchor = textAnchor;
       let linePx = px;
       let currentLineTopY = valueOffsetY + lineIdx * Math.round(targetFontSize * 1.2);
@@ -541,10 +559,10 @@ export function renderStudentCardToSvgString(
       if (key === 'schoolName') {
         if (lineIdx === 0) {
           targetFontSize = field.fontSize;
-          targetWeight = lines.length > 1 ? '600' : field.fontWeight || '700';
+          targetWeight = lines.length > 1 ? 'bold' : normalizeSvgFontWeight(field.fontWeight || '700');
         } else {
           targetFontSize = field.secondLineFontSize ?? field.fontSize;
-          targetWeight = field.fontWeight || '700';
+          targetWeight = normalizeSvgFontWeight(field.fontWeight || '700');
           lineAnchor = (field.secondLineAlign ?? field.align) === 'center' ? 'middle' : (field.secondLineAlign ?? field.align) === 'right' ? 'end' : 'start';
           const secondXPct = field.secondLineX ?? field.x;
           linePx = (secondXPct / 100) * W;
@@ -576,7 +594,7 @@ export function renderStudentCardToSvgString(
     <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${W} ${H}" width="${widthMm}mm" height="${heightMm}mm" id="${prefix}">
       <defs>
         <style type="text/css">
-          text { font-family: Arial, 'Segoe UI', Tahoma, 'Plus Jakarta Sans', sans-serif; }
+          text { font-family: 'NotoSans', Arial, 'Segoe UI', Tahoma, 'Plus Jakarta Sans', sans-serif; }
         </style>
       </defs>
       ${innerSvg}
@@ -662,7 +680,7 @@ export function generateA4SheetSvgString(
     <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 210 297" width="210mm" height="297mm">
       <defs>
         <style type="text/css">
-          text { font-family: Arial, 'Segoe UI', Tahoma, 'Plus Jakarta Sans', sans-serif; }
+          text { font-family: 'NotoSans', Arial, 'Segoe UI', Tahoma, 'Plus Jakarta Sans', sans-serif; }
         </style>
       </defs>
       <g id="a4-sheet-background">

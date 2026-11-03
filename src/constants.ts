@@ -130,24 +130,18 @@ export function inferDepartmentAndStudentNumber(
   return { formattedStudentNumber, fieldOfStudy };
 }
 
-// Generate realistic, high-resolution SVG portrait data URLs so demo students have crisp, zero-broken-image portraits out of the box
-function createStudentPortraitDataUrl(
+// Generate realistic, high-resolution portrait data URLs so demo students have crisp, zero-broken-image portraits out of the box
+export function createStudentPortraitDataUrl(
   initials: string,
   bgHex: string,
   shirtHex: string,
   hairHex: string,
   skinHex: string,
   gender: 'f' | 'm',
-  studentNo: string
+  studentNo: string = '0000'
 ): string {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 380" width="300" height="380">
-    <defs>
-      <linearGradient id="bg-${studentNo}" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="${bgHex}" />
-        <stop offset="100%" stop-color="#cbd5e1" />
-      </linearGradient>
-    </defs>
-    <rect width="300" height="380" fill="url(#bg-${studentNo})" />
+    <rect width="300" height="380" fill="${bgHex}" />
     <circle cx="150" cy="145" r="130" fill="#ffffff" fill-opacity="0.22" />
     <path d="M35 380 C35 288 85 265 150 265 C215 265 265 288 265 380 Z" fill="${shirtHex}" />
     <polygon points="118,265 150,315 182,265" fill="#ffffff" />

@@ -18,17 +18,19 @@ interface CardCanvasPreviewProps {
   side?: 'front' | 'back';
   selectedField?: FieldKey | null;
   interactive?: boolean;
+  scale?: number;
   onSelectField?: (field: FieldKey) => void;
   onMoveField?: (field: FieldKey, newX: number, newY: number) => void;
   className?: string;
 }
 
-export const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
+export const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = React.memo(({
   student,
   template,
   side = 'front',
   selectedField = null,
   interactive = false,
+  scale,
   onSelectField,
   onMoveField,
   className = '',
@@ -44,14 +46,14 @@ export const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const dpr = typeof window !== 'undefined' ? Math.min(2, window.devicePixelRatio || 1) : 1;
+    const finalScale = scale !== undefined ? scale : (typeof window !== 'undefined' ? Math.min(2, window.devicePixelRatio || 1) : 1);
     renderStudentCardToCanvas(canvas, student, template, {
       side,
       selectedField,
       showInteractiveGuides: interactive,
-      scale: dpr,
+      scale: finalScale,
     });
-  }, [student, template, side, selectedField, interactive]);
+  }, [student, template, side, selectedField, interactive, scale]);
 
   const getPercentageCoords = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -188,4 +190,4 @@ export const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
       />
     </div>
   );
-};
+});

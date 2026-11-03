@@ -17,9 +17,6 @@ export function getOfficialMebLogoSvgDataUrl(
       <stop offset="0%" stop-color="${primaryColor}"/>
       <stop offset="100%" stop-color="#7f1d1d"/>
     </linearGradient>
-    <filter id="mebDropShadow" x="-10%" y="-10%" width="120%" height="120%">
-      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.25"/>
-    </filter>
   </defs>
 
   <!-- Crisp White Outer Base Plate -->
@@ -46,7 +43,7 @@ export function getOfficialMebLogoSvgDataUrl(
   </g>
 
   <!-- Inner White Disc for Maximum Contrast -->
-  <circle cx="300" cy="300" r="215" fill="#ffffff" filter="url(#mebDropShadow)"/>
+  <circle cx="300" cy="300" r="215" fill="#ffffff"/>
   <circle cx="300" cy="300" r="215" fill="none" stroke="url(#mebGold)" stroke-width="5"/>
 
   <!-- Crescent and Star (Hilal ve Yıldız) at the top of the emblem -->

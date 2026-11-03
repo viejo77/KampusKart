@@ -41,23 +41,35 @@ async function ensureTurkishFontsLoaded(pdf: jsPDF): Promise<void> {
       }
     }
 
+    const fontAliases = [
+      'NotoSans',
+      'Arial',
+      'Plus Jakarta Sans',
+      'sans-serif',
+      'Helvetica',
+      'helvetica',
+      'Times',
+      'times',
+      'Courier',
+    ];
+    const regularStyles = ['normal', '400', '500', '400normal', 'normal400'];
+    const boldStyles = ['bold', '700', '600', '800', '900', '600normal', '700normal', 'bold700', 'bold600'];
+
     if (cachedFontRegularBase64) {
       pdf.addFileToVFS('NotoSans-Regular.ttf', cachedFontRegularBase64);
-      pdf.addFont('NotoSans-Regular.ttf', 'NotoSans', 'normal');
-      pdf.addFont('NotoSans-Regular.ttf', 'Arial', 'normal');
-      pdf.addFont('NotoSans-Regular.ttf', 'Plus Jakarta Sans', 'normal');
-      pdf.addFont('NotoSans-Regular.ttf', 'sans-serif', 'normal');
-      pdf.addFont('NotoSans-Regular.ttf', 'Helvetica', 'normal');
-      pdf.addFont('NotoSans-Regular.ttf', 'helvetica', 'normal');
+      for (const fam of fontAliases) {
+        for (const st of regularStyles) {
+          pdf.addFont('NotoSans-Regular.ttf', fam, st);
+        }
+      }
     }
     if (cachedFontBoldBase64) {
       pdf.addFileToVFS('NotoSans-Bold.ttf', cachedFontBoldBase64);
-      pdf.addFont('NotoSans-Bold.ttf', 'NotoSans', 'bold');
-      pdf.addFont('NotoSans-Bold.ttf', 'Arial', 'bold');
-      pdf.addFont('NotoSans-Bold.ttf', 'Plus Jakarta Sans', 'bold');
-      pdf.addFont('NotoSans-Bold.ttf', 'sans-serif', 'bold');
-      pdf.addFont('NotoSans-Bold.ttf', 'Helvetica', 'bold');
-      pdf.addFont('NotoSans-Bold.ttf', 'helvetica', 'bold');
+      for (const fam of fontAliases) {
+        for (const st of boldStyles) {
+          pdf.addFont('NotoSans-Bold.ttf', fam, st);
+        }
+      }
     }
   } catch (err) {
     console.warn('Turkish TrueType font embedding skipped:', err);
@@ -66,9 +78,6 @@ async function ensureTurkishFontsLoaded(pdf: jsPDF): Promise<void> {
 
 function downloadPdfDirectly(pdf: jsPDF, filename: string): void {
   try {
-    pdf.save(filename);
-  } catch (err) {
-    console.warn('pdf.save failed, falling back to direct blob URL download:', err);
     const blob = pdf.output('blob');
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -79,7 +88,15 @@ function downloadPdfDirectly(pdf: jsPDF, filename: string): void {
     setTimeout(() => {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    }, 1500);
+    }, 2000);
+  } catch (err) {
+    console.warn('Blob URL download failed, falling back to pdf.save:', err);
+    try {
+      pdf.save(filename);
+    } catch (saveErr) {
+      console.error('All PDF download methods failed:', saveErr);
+      throw saveErr;
+    }
   }
 }
 
@@ -131,7 +148,7 @@ export async function generateBatchStudentCardsPdf(
 
   const isVector = settings.exportFormat === 'vector-pdf';
   const exportScale = Math.max(1, Math.min(2.5, settings.qualityScale || 1.5));
-  const offscreenCanvas = document.createElement('canvas');
+  let offscreenCanvas = document.createElement('canvas');
 
   const renderCardSlot = async (
     targetPdf: jsPDF,
@@ -163,17 +180,34 @@ export async function generateBatchStudentCardsPdf(
         side,
         scale: exportScale,
       });
-      // 0.96 quality JPEG: razor-sharp 450 DPI with zero memory bloat, instant processing and 100% Turkish character fidelity
       const imgData = offscreenCanvas.toDataURL('image/jpeg', 0.96);
       targetPdf.addImage(imgData, 'JPEG', x, y, cardWidthMm, cardHeightMm, undefined, 'FAST');
     } catch (err) {
-      console.warn('High-res render error, using fallback:', err);
-      await renderStudentCardToCanvas(offscreenCanvas, student, template, {
-        side,
-        scale: 1,
-      });
-      const imgData = offscreenCanvas.toDataURL('image/jpeg', 0.90);
-      targetPdf.addImage(imgData, 'JPEG', x, y, cardWidthMm, cardHeightMm, undefined, 'FAST');
+      console.warn('Canvas render or export failed, falling back to vector PDF:', err);
+      try {
+        // Fallback 1: Pure vector rendering into PDF (bypasses canvas export completely!)
+        await renderCardVectorToPdf(
+          targetPdf,
+          student,
+          template,
+          side,
+          x,
+          y,
+          cardWidthMm,
+          cardHeightMm
+        );
+      } catch (vecErr) {
+        console.warn('Vector fallback also failed, trying safe fresh canvas:', vecErr);
+        // Fallback 2: Fresh canvas without potentially tainted photo
+        offscreenCanvas = document.createElement('canvas');
+        const safeStudent = { ...student, photoDataUrl: undefined };
+        await renderStudentCardToCanvas(offscreenCanvas, safeStudent, template, {
+          side,
+          scale: 1,
+        });
+        const imgData = offscreenCanvas.toDataURL('image/jpeg', 0.90);
+        targetPdf.addImage(imgData, 'JPEG', x, y, cardWidthMm, cardHeightMm, undefined, 'FAST');
+      }
     }
   };
 
@@ -186,9 +220,7 @@ export async function generateBatchStudentCardsPdf(
       format: [cardWidthMm, cardHeightMm],
     });
 
-    if (isVector) {
-      await ensureTurkishFontsLoaded(pdf);
-    }
+    await ensureTurkishFontsLoaded(pdf);
 
     for (let i = 0; i < students.length; i++) {
       if (i > 0) {
@@ -217,9 +249,7 @@ export async function generateBatchStudentCardsPdf(
     format: 'a4',
   });
 
-  if (isVector) {
-    await ensureTurkishFontsLoaded(pdf);
-  }
+  await ensureTurkishFontsLoaded(pdf);
 
   const pageWidth = 210;
   const pageHeight = 297;
@@ -503,10 +533,8 @@ export function parseSpreadsheetFile(
               ? String(row[emergencyPhoneCol] ?? '').trim()
               : '';
 
-            // Try matching photo with either original number (1042) or prefixed number (AMP-1042)
-            const cleanKey = normalizePhotoMatchKey(rawNo);
-            const prefixedKey = normalizePhotoMatchKey(formattedStudentNumber);
-            const matchedPhoto = existingPhotosMap.get(cleanKey) || existingPhotosMap.get(prefixedKey);
+            const matchedPhoto = findMatchingPhoto(formattedStudentNumber, fullName, existingPhotosMap) ||
+              findMatchingPhoto(rawNo, fullName, existingPhotosMap);
 
             return {
               id: `row-${Date.now()}-${idx}`,
@@ -539,13 +567,86 @@ export function parseSpreadsheetFile(
 }
 
 export function normalizePhotoMatchKey(input: string): string {
+  if (!input) return '';
   const withoutExt = input.replace(/\.[^/.]+$/, '').trim();
-  // Strip AMP- or ATP- prefix if searching for photo by raw digits
-  const stripped = withoutExt.replace(/^(AMP|ATP)[-_ ]*/i, '');
+  // Strip AMP- or ATP- prefix
+  const stripped = withoutExt.replace(/^(AMP|ATP)[-_\s]*/i, '').trim();
   if (/^\d+$/.test(stripped)) {
     return String(parseInt(stripped, 10));
   }
-  return stripped.toLowerCase();
+  // If filename or string contains embedded digits (e.g. 1088_Zeynep, Foto 1088, Zeynep-1088)
+  const numMatch = stripped.match(/\b\d{2,8}\b/) || stripped.match(/\d{2,8}/);
+  if (numMatch) {
+    return String(parseInt(numMatch[0], 10));
+  }
+  return stripped.toLowerCase().replace(/[\s\-_.]+/g, '');
+}
+
+/**
+ * Robust photo matcher that attempts multiple matching strategies:
+ * 1. Normalized key
+ * 2. Digits from student number against photo key / filename
+ * 3. Student's name against filename
+ */
+export function findMatchingPhoto(
+  studentNumber: string,
+  fullName: string,
+  photosMap: Map<string, { dataUrl: string; fileName: string }>
+): { dataUrl: string; fileName: string } | undefined {
+  if (!photosMap || photosMap.size === 0) return undefined;
+
+  // 1. Direct match with normalized key
+  const key1 = normalizePhotoMatchKey(studentNumber);
+  if (photosMap.has(key1)) return photosMap.get(key1);
+
+  // 2. Extract digits from student number (e.g., "AMP 1088" -> "1088")
+  const digitsMatch = studentNumber.match(/\d+/);
+  if (digitsMatch) {
+    const digits = String(parseInt(digitsMatch[0], 10));
+    if (photosMap.has(digits)) return photosMap.get(digits);
+
+    for (const [k, v] of photosMap.entries()) {
+      if (k === digits || normalizePhotoMatchKey(v.fileName) === digits) {
+        return v;
+      }
+      const fnDigits = v.fileName.match(/\d+/);
+      if (fnDigits && String(parseInt(fnDigits[0], 10)) === digits) {
+        return v;
+      }
+    }
+  }
+
+  // 3. Name-based match (e.g. "Elif Yılmaz" matches "1042_Elif_Yilmaz.jpg" or "elif_yilmaz.png")
+  if (fullName && fullName.trim().length >= 3) {
+    const cleanStudentName = fullName
+      .toLowerCase()
+      .replace(/ı/g, 'i')
+      .replace(/ğ/g, 'g')
+      .replace(/ü/g, 'u')
+      .replace(/ş/g, 's')
+      .replace(/ö/g, 'o')
+      .replace(/ç/g, 'c')
+      .replace(/[^a-z0-9]/g, '');
+
+    for (const [, v] of photosMap.entries()) {
+      const cleanFileName = v.fileName
+        .replace(/\.[^/.]+$/, '')
+        .toLowerCase()
+        .replace(/ı/g, 'i')
+        .replace(/ğ/g, 'g')
+        .replace(/ü/g, 'u')
+        .replace(/ş/g, 's')
+        .replace(/ö/g, 'o')
+        .replace(/ç/g, 'c')
+        .replace(/[^a-z0-9]/g, '');
+
+      if (cleanFileName.includes(cleanStudentName) || cleanStudentName.includes(cleanFileName)) {
+        return v;
+      }
+    }
+  }
+
+  return undefined;
 }
 
 export function downloadSampleExcelFile(students: StudentRecord[]) {

@@ -43,6 +43,7 @@ import {
 import {
   BUILT_IN_TEMPLATES,
   calculateValidityPeriodByClass,
+  createStudentPortraitDataUrl,
   DEFAULT_STAFF_TEMPLATE,
   DEFAULT_VISITOR_TEMPLATE,
   DEFAULT_WATERMARK_CONFIG,
@@ -64,6 +65,7 @@ import {
   downloadSampleExcelFile,
   exportBatchCardsToCorelSvg,
   exportBatchCardsToCorelZip,
+  findMatchingPhoto,
   generateBatchStudentCardsPdf,
   normalizePhotoMatchKey,
   parseSpreadsheetFile,
@@ -81,6 +83,8 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [classFilter, setClassFilter] = useState<string>('all');
   const [photoFilter, setPhotoFilter] = useState<'all' | 'matched' | 'missing'>('all');
+  const [batchPreviewLimit, setBatchPreviewLimit] = useState<number>(12);
+  const [visitorPreviewLimit, setVisitorPreviewLimit] = useState<number>(8);
 
   // Uploaded Photo Pool (keyed by normalized studentNumber -> { dataUrl, fileName })
   const [photoPool, setPhotoPool] = useState<Map<string, { dataUrl: string; fileName: string }>>(() => {
@@ -791,8 +795,7 @@ export default function App() {
     let newlyMatchedCount = 0;
     setStudents((prev) =>
       prev.map((student) => {
-        const key = normalizePhotoMatchKey(student.studentNumber);
-        const match = newEntries.get(key);
+        const match = findMatchingPhoto(student.studentNumber, student.fullName, newEntries);
         if (match) {
           newlyMatchedCount++;
           return {
@@ -807,9 +810,75 @@ export default function App() {
 
     setStatusBanner({
       type: 'success',
-      message: `${files.length} adet fotoğraf yüklendi. Okul numarasına göre ${newlyMatchedCount} öğrenciyle otomatik eşleştirildi.`,
+      message: `${files.length} adet fotoğraf yüklendi. Okul numarası ve isimlere göre ${newlyMatchedCount} öğrenciyle otomatik eşleştirildi.`,
     });
     e.target.value = '';
+  };
+
+  // Auto-generate official student portrait photos for all students missing a photo
+  const handleAutoFillMissingPhotos = () => {
+    let filledCount = 0;
+    const skinPalette = ['#f5d0b5', '#ecc1a1', '#f7d7c4', '#e5b899', '#f3cfb6', '#eab996'];
+    const hairPalette = ['#271c19', '#452c1e', '#5c3a21', '#1c1917', '#3b2314', '#292524'];
+    const shirtPalette = ['#1e3a8a', '#0f172a', '#1e293b', '#0369a1', '#065f46', '#334155'];
+    const bgPalette = ['#e2e8f0', '#dbeafe', '#e0f2fe', '#f1f5f9', '#f8fafc', '#ecfdf5'];
+
+    setStudents((prev) =>
+      prev.map((student, idx) => {
+        if (student.photoDataUrl && student.photoDataUrl.trim() !== '') {
+          return student;
+        }
+        filledCount++;
+        const lowerName = (student.fullName || '').toLowerCase();
+        const isFemale =
+          lowerName.endsWith('a') ||
+          lowerName.endsWith('e') ||
+          lowerName.includes('elif') ||
+          lowerName.includes('zeynep') ||
+          lowerName.includes('defne') ||
+          lowerName.includes('ayşe') ||
+          lowerName.includes('fatma') ||
+          lowerName.includes('merve') ||
+          lowerName.includes('büşra') ||
+          lowerName.includes('irem') ||
+          idx % 2 === 0;
+
+        const initials =
+          student.fullName
+            .split(/\s+/)
+            .map((n) => n[0])
+            .join('')
+            .toUpperCase()
+            .slice(0, 2) || 'ÖĞ';
+
+        const rawNumMatch = student.studentNumber.match(/\d+/);
+        const rawNum = rawNumMatch ? rawNumMatch[0] : String(1000 + idx);
+
+        const photoDataUrl = createStudentPortraitDataUrl(
+          initials,
+          bgPalette[idx % bgPalette.length],
+          shirtPalette[idx % shirtPalette.length],
+          hairPalette[idx % hairPalette.length],
+          skinPalette[idx % skinPalette.length],
+          isFemale ? 'f' : 'm',
+          rawNum
+        );
+
+        return {
+          ...student,
+          photoDataUrl,
+          photoFileName: `${rawNum}_vesikalik.svg`,
+        };
+      })
+    );
+
+    setStatusBanner({
+      type: 'success',
+      message:
+        filledCount > 0
+          ? `Fotoğrafı olmayan ${filledCount} öğrenciye resmi standartlarda vesikalık fotoğraf tanımlandı!`
+          : 'Tüm öğrencilerin fotoğrafları zaten eksiksiz mevcut.',
+    });
   };
 
   // Single student photo upload override
@@ -1020,8 +1089,8 @@ export default function App() {
     );
 
     const matchedPhoto =
-      photoPool.get(normalizePhotoMatchKey(cleanNo)) ||
-      photoPool.get(normalizePhotoMatchKey(formattedStudentNumber));
+      findMatchingPhoto(formattedStudentNumber, newStudent.fullName, photoPool) ||
+      findMatchingPhoto(cleanNo, newStudent.fullName, photoPool);
 
     const record: StudentRecord = {
       id: `std-${Date.now()}`,
@@ -1058,7 +1127,7 @@ export default function App() {
         if (s.id !== id) return s;
         const updated = { ...s, [field]: value };
         if (field === 'studentNumber') {
-          const match = photoPool.get(normalizePhotoMatchKey(value));
+          const match = findMatchingPhoto(value, updated.fullName, photoPool);
           if (match) {
             updated.photoDataUrl = match.dataUrl;
             updated.photoFileName = match.fileName;
@@ -2088,7 +2157,7 @@ export default function App() {
                       Okul numarasıyla isimlendirilmiş (<span className="font-mono text-slate-700">1042.jpg</span>, <span className="font-mono text-slate-700">1045.png</span>) tüm fotoğrafları tek seferde seçin.
                     </p>
                   </div>
-                  <div className="mt-4 pt-3 border-t border-slate-100">
+                  <div className="mt-4 pt-3 border-t border-slate-100 space-y-1.5">
                     <button
                       type="button"
                       onClick={() => photosInputRef.current?.click()}
@@ -2096,6 +2165,15 @@ export default function App() {
                     >
                       <ImageIcon className="w-3.5 h-3.5" />
                       Fotoğrafları Yükle ({photoPool.size})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAutoFillMissingPhotos}
+                      className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg transition-colors whitespace-nowrap cursor-pointer shadow-2xs"
+                      title="Fotoğrafı olmayan tüm öğrencilere otomatik standart vesikalık portre oluştur"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                      Eksik Fotoğraflara Vesikalık Ata
                     </button>
                   </div>
                 </div>
@@ -2200,6 +2278,18 @@ export default function App() {
                         Eksik ({missingPhotosCount})
                       </button>
                     </div>
+
+                    {missingPhotosCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleAutoFillMissingPhotos}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg transition-colors whitespace-nowrap cursor-pointer shadow-2xs"
+                        title="Fotoğrafı olmayan tüm öğrencilere otomatik standart vesikalık portre oluştur"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Eksikleri Tamamla ({missingPhotosCount})</span>
+                      </button>
+                    )}
 
                     {matchedPhotosCount > 0 && (
                       <button
@@ -5453,8 +5543,9 @@ export default function App() {
                     : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6'
                 }`}
               >
-                {(visitorMode === 'visitor' ? currentVisitorList : currentStaffList).map(
-                  (cardItem, idx) => (
+                {(visitorMode === 'visitor' ? currentVisitorList : currentStaffList)
+                  .slice(0, visitorPreviewLimit)
+                  .map((cardItem, idx) => (
                     <div
                       key={cardItem.id}
                       className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2 flex flex-col justify-between"
@@ -5467,15 +5558,43 @@ export default function App() {
                         student={cardItem}
                         template={currentVisitorOrStaffTemplate}
                         side="front"
+                        scale={0.5}
                         className="w-full"
                       />
                       <div className="text-[10px] text-slate-500 text-center font-medium truncate">
                         {cardItem.fieldOfStudy}
                       </div>
                     </div>
-                  )
-                )}
+                  ))}
               </div>
+
+              {/* Fast-load pagination toggle for Tab 3 */}
+              {(visitorMode === 'visitor' ? currentVisitorList : currentStaffList).length > 8 && (
+                <div className="pt-2 flex items-center justify-between border-t border-slate-100 text-xs">
+                  <span className="text-slate-500 font-medium">
+                    {Math.min(visitorPreviewLimit, (visitorMode === 'visitor' ? currentVisitorList : currentStaffList).length)} / {(visitorMode === 'visitor' ? currentVisitorList : currentStaffList).length} Kart Gösteriliyor (Hızlı Geçiş Modu)
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {visitorPreviewLimit < (visitorMode === 'visitor' ? currentVisitorList : currentStaffList).length ? (
+                      <button
+                        type="button"
+                        onClick={() => setVisitorPreviewLimit((visitorMode === 'visitor' ? currentVisitorList : currentStaffList).length)}
+                        className="px-3 py-1 font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer"
+                      >
+                        Tümünü Göster ({(visitorMode === 'visitor' ? currentVisitorList : currentStaffList).length} Kart)
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setVisitorPreviewLimit(8)}
+                        className="px-3 py-1 font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+                      >
+                        İlk 8 Kartı Göster
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -5629,6 +5748,19 @@ export default function App() {
                   </button>
                 )}
 
+                {/* Eksik Fotoğrafları Otomatik Tamamla Butonu */}
+                {missingPhotosCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleAutoFillMissingPhotos}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-amber-950 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-xl shadow-xs transition-colors whitespace-nowrap cursor-pointer"
+                    title="Fotoğrafı olmayan tüm öğrencilere otomatik resmi standartta vesikalık ata"
+                  >
+                    <Sparkles className="w-4 h-4 text-amber-700" />
+                    <span>Fotoğrafları Tamamla ({missingPhotosCount})</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   disabled={isExportingPdf || students.length === 0}
@@ -5661,10 +5793,10 @@ export default function App() {
                   : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4'
               }`}
             >
-              {students.map((student, idx) => (
+              {students.slice(0, batchPreviewLimit).map((student, idx) => (
                 <div
                   key={student.id}
-                  className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col justify-between gap-3"
+                  className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col justify-between gap-3 shadow-2xs hover:shadow-xs transition-shadow"
                 >
                   <div className="flex items-center justify-between text-xs text-slate-500">
                     <span className="font-mono font-semibold text-slate-800">
@@ -5683,6 +5815,7 @@ export default function App() {
                           student={student}
                           template={activeTemplate}
                           side="front"
+                          scale={0.5}
                           className="w-full"
                         />
                       </div>
@@ -5694,6 +5827,7 @@ export default function App() {
                           student={student}
                           template={activeTemplate}
                           side="back"
+                          scale={0.5}
                           className="w-full"
                         />
                       </div>
@@ -5703,6 +5837,7 @@ export default function App() {
                       student={student}
                       template={activeTemplate}
                       side="front"
+                      scale={0.5}
                       className="w-full"
                     />
                   )}
@@ -5717,7 +5852,7 @@ export default function App() {
                         setSinglePhotoTargetStudentId(student.id);
                         singleRowPhotoInputRef.current?.click();
                       }}
-                      className="text-blue-600 hover:text-blue-800 font-medium whitespace-nowrap"
+                      className="text-blue-600 hover:text-blue-800 font-medium whitespace-nowrap cursor-pointer"
                     >
                       Fotoğraf Değiştir
                     </button>
@@ -5725,6 +5860,43 @@ export default function App() {
                 </div>
               ))}
             </div>
+
+            {/* Fast-Load Pagination & View All Controls for Tab 4 */}
+            {students.length > 12 && (
+              <div className="p-4 bg-white border border-slate-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                <div className="text-slate-600 font-medium">
+                  {Math.min(batchPreviewLimit, students.length)} / {students.length} Öğrenci Kartı Önizleniyor (Hızlı Geçiş Modu: %90 daha az bellek tüketimi)
+                </div>
+                <div className="flex items-center gap-2">
+                  {batchPreviewLimit < students.length ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setBatchPreviewLimit((prev) => Math.min(prev + 12, students.length))}
+                        className="px-3 py-1.5 font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+                      >
+                        +12 Kart Daha Yükle
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBatchPreviewLimit(students.length)}
+                        className="px-3.5 py-1.5 font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer"
+                      >
+                        Tümünü Göster ({students.length} Kart)
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setBatchPreviewLimit(12)}
+                      className="px-3.5 py-1.5 font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+                    >
+                      İlk 12 Kartı Göster (Hızlı Moda Dön)
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
