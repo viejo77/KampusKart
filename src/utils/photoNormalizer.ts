@@ -9,7 +9,27 @@ import { StudentRecord } from '../types';
  * 2. WebP, AVIF, BMP, or non-standard JPEG formats exported by MEB / e-Okul.
  * 3. Giant raw photo file sizes (3-10 MB each) that freeze browser tabs and exceed memory.
  * 4. Missing photos in vector PDF & CorelDRAW SVG exports.
+/**
+ * Detects if a photo data URL or filename is an auto-generated cartoon illustration/avatar
+ * created by the system rather than a real photo uploaded by the user.
  */
+export function isSystemGeneratedPhoto(photoDataUrl?: string, photoFileName?: string): boolean {
+  if (!photoDataUrl || !photoDataUrl.trim()) return false;
+  const trimmed = photoDataUrl.trim();
+  if (trimmed.startsWith('data:image/svg+xml')) return true;
+  if (trimmed.includes('<svg') || trimmed.includes('%3Csvg') || trimmed.includes('xmlns="http://www.w3.org/2000/svg"')) return true;
+  if (trimmed.includes('viewBox="0 0 300 380"') || trimmed.includes('viewBox%3D%220%200%20300%20380%22')) return true;
+  if (photoFileName && (photoFileName.endsWith('.svg') || photoFileName.includes('_vesikalik.svg'))) return true;
+  return false;
+}
+
+/**
+ * Checks if a student record has a genuine user-uploaded photo (not a system avatar).
+ */
+export function isRealUserPhoto(photoDataUrl?: string, photoFileName?: string): boolean {
+  if (!photoDataUrl || !photoDataUrl.trim()) return false;
+  return !isSystemGeneratedPhoto(photoDataUrl, photoFileName);
+}
 
 const photoCache = new Map<string, string>();
 
@@ -24,6 +44,9 @@ export async function normalizePhotoToStandardJpeg(
 ): Promise<string> {
   if (!photoUrl || !photoUrl.trim()) return '';
   const trimmed = photoUrl.trim();
+
+  // If this is a system avatar, do not normalize, return as-is
+  if (isSystemGeneratedPhoto(trimmed)) return trimmed;
 
   // If already normalized and cached, return immediately
   if (photoCache.has(trimmed)) {

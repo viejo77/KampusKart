@@ -74,7 +74,11 @@ import {
 } from './utils/pdfExporter';
 import { generateStaffCards, generateVisitorCards } from './utils/visitorCards';
 import { getOfficialMebLogoSvgDataUrl } from './utils/officialMebLogo';
-import { normalizePhotoToStandardJpeg } from './utils/photoNormalizer';
+import {
+  isRealUserPhoto,
+  isSystemGeneratedPhoto,
+  normalizePhotoToStandardJpeg,
+} from './utils/photoNormalizer';
 
 type ActiveTab = 'data-matching' | 'template-studio' | 'visitor-staff' | 'batch-preview';
 
@@ -88,19 +92,11 @@ export default function App() {
   const [photoFilter, setPhotoFilter] = useState<'all' | 'matched' | 'missing'>('all');
   const [batchPreviewLimit, setBatchPreviewLimit] = useState<number>(12);
   const [visitorPreviewLimit, setVisitorPreviewLimit] = useState<number>(8);
+  const [onlyPrintWithPhotos, setOnlyPrintWithPhotos] = useState<boolean>(true);
 
-  // Uploaded Photo Pool (keyed by normalized studentNumber -> { dataUrl, fileName })
+  // Uploaded Photo Pool (strictly user-uploaded photos, keyed by normalized studentNumber)
   const [photoPool, setPhotoPool] = useState<Map<string, { dataUrl: string; fileName: string }>>(() => {
-    const initialMap = new Map<string, { dataUrl: string; fileName: string }>();
-    for (const s of INITIAL_STUDENTS) {
-      if (s.photoDataUrl && s.photoFileName) {
-        initialMap.set(normalizePhotoMatchKey(s.studentNumber), {
-          dataUrl: s.photoDataUrl,
-          fileName: s.photoFileName,
-        });
-      }
-    }
-    return initialMap;
+    return new Map<string, { dataUrl: string; fileName: string }>();
   });
 
   // Template & Customization State
@@ -211,52 +207,25 @@ export default function App() {
             const skinPalette = ['#f5d0b5', '#ecc1a1', '#f7d7c4', '#e5b899', '#f3cfb6', '#eab996'];
             const hairPalette = ['#271c19', '#452c1e', '#5c3a21', '#1c1917', '#3b2314', '#292524'];
             const shirtPalette = ['#1e3a8a', '#0f172a', '#1e293b', '#0369a1', '#065f46', '#334155'];
-            const bgPalette = ['#e2e8f0', '#dbeafe', '#e0f2fe', '#f1f5f9', '#f8fafc', '#ecfdf5'];
-
-            const healedStudents = saved.students.map((student, idx) => {
-              if (student.photoDataUrl && student.photoDataUrl.trim() !== '') {
-                return student;
+            // Strip any system-generated cartoon avatars, retaining strictly user-uploaded photos
+            const cleanedStudents = saved.students.map((student) => {
+              if (isSystemGeneratedPhoto(student.photoDataUrl, student.photoFileName)) {
+                return {
+                  ...student,
+                  photoDataUrl: undefined,
+                  photoFileName: undefined,
+                };
               }
-              const lowerName = (student.fullName || '').toLowerCase();
-              const isFemale =
-                lowerName.endsWith('a') ||
-                lowerName.endsWith('e') ||
-                lowerName.includes('elif') ||
-                lowerName.includes('zeynep') ||
-                lowerName.includes('defne') ||
-                lowerName.includes('ayşe') ||
-                lowerName.includes('fatma') ||
-                idx % 2 === 0;
-
-              const initials =
-                (student.fullName || '')
-                  .split(/\s+/)
-                  .map((n) => n[0])
-                  .join('')
-                  .toLocaleUpperCase('tr-TR')
-                  .slice(0, 2) || 'ÖĞ';
-
-              const rawNumMatch = (student.studentNumber || '').match(/\d+/);
-              const rawNum = rawNumMatch ? rawNumMatch[0] : String(1000 + idx);
-
-              return {
-                ...student,
-                photoDataUrl: createStudentPortraitDataUrl(
-                  initials,
-                  bgPalette[idx % bgPalette.length],
-                  shirtPalette[idx % shirtPalette.length],
-                  hairPalette[idx % hairPalette.length],
-                  skinPalette[idx % skinPalette.length],
-                  isFemale ? 'f' : 'm',
-                  rawNum
-                ),
-                photoFileName: student.photoFileName || `${rawNum}.jpg`,
-              };
+              return student;
             });
-            setStudents(healedStudents);
+            setStudents(cleanedStudents);
           }
           if (Array.isArray(saved.photoPoolEntries)) {
-            setPhotoPool(new Map(saved.photoPoolEntries));
+            // Also purge any system-generated avatars from photo pool
+            const cleanedPoolEntries = saved.photoPoolEntries.filter(
+              ([, item]) => item && isRealUserPhoto(item.dataUrl, item.fileName)
+            );
+            setPhotoPool(new Map(cleanedPoolEntries));
           }
           if (Array.isArray(saved.templates) && saved.templates.length > 0) {
             setTemplates(saved.templates);
@@ -757,21 +726,28 @@ export default function App() {
         s.schoolName.toLowerCase().includes(q);
 
       const matchesClass = classFilter === 'all' || s.className === classFilter;
+      const hasRealPhoto = isRealUserPhoto(s.photoDataUrl, s.photoFileName);
       const matchesPhoto =
         photoFilter === 'all' ||
-        (photoFilter === 'matched' && Boolean(s.photoDataUrl)) ||
-        (photoFilter === 'missing' && !s.photoDataUrl);
+        (photoFilter === 'matched' && hasRealPhoto) ||
+        (photoFilter === 'missing' && !hasRealPhoto);
 
       return matchesSearch && matchesClass && matchesPhoto;
     });
   }, [students, searchQuery, classFilter, photoFilter]);
 
-  // Statistics
+  // Statistics (strictly real user uploaded photos)
   const matchedPhotosCount = useMemo(
-    () => students.filter((s) => Boolean(s.photoDataUrl)).length,
+    () => students.filter((s) => isRealUserPhoto(s.photoDataUrl, s.photoFileName)).length,
     [students]
   );
   const missingPhotosCount = students.length - matchedPhotosCount;
+
+  const printableBatchStudents = useMemo(() => {
+    return onlyPrintWithPhotos
+      ? students.filter((s) => isRealUserPhoto(s.photoDataUrl, s.photoFileName))
+      : students;
+  }, [onlyPrintWithPhotos, students]);
 
   // Handle Excel / CSV Import
   const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -864,69 +840,63 @@ export default function App() {
     e.target.value = '';
   };
 
-  // Auto-generate official student portrait photos for all students missing a photo
-  const handleAutoFillMissingPhotos = () => {
-    let filledCount = 0;
-    const skinPalette = ['#f5d0b5', '#ecc1a1', '#f7d7c4', '#e5b899', '#f3cfb6', '#eab996'];
-    const hairPalette = ['#271c19', '#452c1e', '#5c3a21', '#1c1917', '#3b2314', '#292524'];
-    const shirtPalette = ['#1e3a8a', '#0f172a', '#1e293b', '#0369a1', '#065f46', '#334155'];
-    const bgPalette = ['#e2e8f0', '#dbeafe', '#e0f2fe', '#f1f5f9', '#f8fafc', '#ecfdf5'];
-
+  // Sistemin otomatik atadığı yapay SVG fotoğrafları temizle (sadece kullanıcının yüklediği fotoğrafları bırak)
+  const handlePurgeSystemAvatars = () => {
+    let removedCount = 0;
     setStudents((prev) =>
-      prev.map((student, idx) => {
-        if (student.photoDataUrl && student.photoDataUrl.trim() !== '') {
-          return student;
+      prev.map((student) => {
+        if (isSystemGeneratedPhoto(student.photoDataUrl, student.photoFileName)) {
+          removedCount++;
+          return {
+            ...student,
+            photoDataUrl: undefined,
+            photoFileName: undefined,
+          };
         }
-        filledCount++;
-        const lowerName = (student.fullName || '').toLowerCase();
-        const isFemale =
-          lowerName.endsWith('a') ||
-          lowerName.endsWith('e') ||
-          lowerName.includes('elif') ||
-          lowerName.includes('zeynep') ||
-          lowerName.includes('defne') ||
-          lowerName.includes('ayşe') ||
-          lowerName.includes('fatma') ||
-          lowerName.includes('merve') ||
-          lowerName.includes('büşra') ||
-          lowerName.includes('irem') ||
-          idx % 2 === 0;
-
-        const initials =
-          student.fullName
-            .split(/\s+/)
-            .map((n) => n[0])
-            .join('')
-            .toLocaleUpperCase('tr-TR')
-            .slice(0, 2) || 'ÖĞ';
-
-        const rawNumMatch = student.studentNumber.match(/\d+/);
-        const rawNum = rawNumMatch ? rawNumMatch[0] : String(1000 + idx);
-
-        const photoDataUrl = createStudentPortraitDataUrl(
-          initials,
-          bgPalette[idx % bgPalette.length],
-          shirtPalette[idx % shirtPalette.length],
-          hairPalette[idx % hairPalette.length],
-          skinPalette[idx % skinPalette.length],
-          isFemale ? 'f' : 'm',
-          rawNum
-        );
-
-        return {
-          ...student,
-          photoDataUrl,
-          photoFileName: `${rawNum}_vesikalik.svg`,
-        };
+        return student;
       })
     );
+
+    setPhotoPool((prev) => {
+      const nextMap = new Map();
+      for (const [key, val] of prev.entries()) {
+        if (isRealUserPhoto(val.dataUrl, val.fileName)) {
+          nextMap.set(key, val);
+        }
+      }
+      return nextMap;
+    });
 
     setStatusBanner({
       type: 'success',
       message:
-        filledCount > 0
-          ? `Fotoğrafı olmayan ${filledCount} öğrenciye resmi standartlarda vesikalık fotoğraf tanımlandı!`
-          : 'Tüm öğrencilerin fotoğrafları zaten eksiksiz mevcut.',
+        removedCount > 0
+          ? `Sistemin otomatik atadığı ${removedCount} adet yapay fotoğraf başarıyla silindi. Sadece sizin yüklediğiniz fotoğraflar kaldı.`
+          : 'Sistem tarafından atanmış yapay fotoğraf bulunmuyor; kayıtlar zaten temiz.',
+    });
+  };
+
+  // Fotoğrafı olmayan öğrencileri listeden tamamen sil (devamsız / kimlik basılmayacak öğrenciler)
+  const handleRemoveStudentsWithoutPhotos = () => {
+    const withoutPhotosCount = students.filter(
+      (s) => !isRealUserPhoto(s.photoDataUrl, s.photoFileName)
+    ).length;
+
+    if (withoutPhotosCount === 0) {
+      setStatusBanner({
+        type: 'info',
+        message: 'Listede fotoğrafı olmayan öğrenci bulunmuyor; tüm öğrencilerin fotoğrafı mevcut.',
+      });
+      return;
+    }
+
+    setStudents((prev) =>
+      prev.filter((s) => isRealUserPhoto(s.photoDataUrl, s.photoFileName))
+    );
+
+    setStatusBanner({
+      type: 'success',
+      message: `Fotoğrafı olmayan / devamsız ${withoutPhotosCount} öğrenci listeden başarıyla çıkarıldı. Kalan ${students.length - withoutPhotosCount} fotoğraflı öğrenci için kimlik basılacak.`,
     });
   };
 
@@ -1302,12 +1272,13 @@ export default function App() {
 
   // Trigger Batch PDF Export (supports exporting all or only students with photos)
   const handleExportBatchPdf = async (onlyWithPhoto: boolean = false) => {
-    const targetStudents = onlyWithPhoto
-      ? students.filter((s) => Boolean(s.photoDataUrl && s.photoDataUrl.trim() !== ''))
+    const filterToPhotos = onlyWithPhoto || onlyPrintWithPhotos;
+    const targetStudents = filterToPhotos
+      ? students.filter((s) => isRealUserPhoto(s.photoDataUrl, s.photoFileName))
       : students;
 
     if (targetStudents.length === 0 || isExportingPdf) {
-      if (onlyWithPhoto && targetStudents.length === 0) {
+      if (filterToPhotos && targetStudents.length === 0) {
         setStatusBanner({
           type: 'warning',
           message: 'Fotoğrafı olan hiçbir öğrenci kaydı bulunamadı. Lütfen önce fotoğrafları yükleyip eşleştirin.',
@@ -1334,7 +1305,7 @@ export default function App() {
       setStatusBanner({
         type: 'success',
         message: `${targetStudents.length} ${
-          onlyWithPhoto ? 'fotoğraflı ' : ''
+          filterToPhotos ? 'fotoğraflı ' : ''
         }öğrencinin ${
           activeTemplate.enableBackSide ? 'çift taraflı (ön + arka yüz)' : 'tek taraflı (ön yüz)'
         } kimlik kartı PDF olarak başarıyla indirildi.`,
@@ -1353,11 +1324,20 @@ export default function App() {
 
   // Export CorelDRAW A4 SVG (Montage with vector text & crop marks)
   const handleExportCorelSvg = async (side: 'front' | 'back' = 'front') => {
-    if (students.length === 0) return;
-    await exportBatchCardsToCorelSvg(students, activeTemplate, pdfSettings, side);
+    const targetStudents = onlyPrintWithPhotos
+      ? students.filter((s) => isRealUserPhoto(s.photoDataUrl, s.photoFileName))
+      : students;
+    if (targetStudents.length === 0) {
+      setStatusBanner({
+        type: 'warning',
+        message: 'Dışa aktarılacak fotoğraflı öğrenci kaydı bulunamadı.',
+      });
+      return;
+    }
+    await exportBatchCardsToCorelSvg(targetStudents, activeTemplate, pdfSettings, side);
     setStatusBanner({
       type: 'success',
-      message: `${students.length} öğrencinin ${
+      message: `${targetStudents.length} ${onlyPrintWithPhotos ? 'fotoğraflı ' : ''}öğrencinin ${
         side === 'front' ? 'Ön Yüz' : 'Arka Yüz'
       } CorelDRAW (.SVG) A4 montaj tabakası indirildi. CorelDRAW'da "Dosya -> Aç" (Ctrl+O) veya İçe Aktar (Ctrl+I) ile doğrudan açabilirsiniz.`,
     });
@@ -1365,12 +1345,15 @@ export default function App() {
 
   // Export CorelDRAW Full ZIP Package (individual CR80 SVGs + A4 montage SVGs + guide)
   const handleExportCorelZip = async () => {
-    if (students.length === 0 || isExportingCorel) return;
+    const targetStudents = onlyPrintWithPhotos
+      ? students.filter((s) => isRealUserPhoto(s.photoDataUrl, s.photoFileName))
+      : students;
+    if (targetStudents.length === 0 || isExportingCorel) return;
     setIsExportingCorel(true);
     setExportProgress({ current: 1, total: 2 });
     try {
       await exportBatchCardsToCorelZip(
-        students,
+        targetStudents,
         activeTemplate,
         activeTemplate.enableBackSide,
         (current, total) => {
@@ -1379,7 +1362,7 @@ export default function App() {
       );
       setStatusBanner({
         type: 'success',
-        message: `${students.length} öğrencinin tek tek CR80 (85.6×54mm) ve A4 montajlı tüm vektörel kartları CorelDRAW ZIP paketi olarak indirildi.`,
+        message: `${targetStudents.length} ${onlyPrintWithPhotos ? 'fotoğraflı ' : ''}öğrencinin tek tek CR80 (85.6×54mm) ve A4 montajlı tüm vektörel kartları CorelDRAW ZIP paketi olarak indirildi.`,
       });
     } catch {
       setStatusBanner({
@@ -2316,12 +2299,12 @@ export default function App() {
                     </button>
                     <button
                       type="button"
-                      onClick={handleAutoFillMissingPhotos}
-                      className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg transition-colors whitespace-nowrap cursor-pointer shadow-2xs"
-                      title="Fotoğrafı olmayan tüm öğrencilere otomatik standart vesikalık portre oluştur"
+                      onClick={handlePurgeSystemAvatars}
+                      className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors whitespace-nowrap cursor-pointer shadow-2xs"
+                      title="Sistemin otomatik atadığı yapay fotoğrafları siler, sadece elle yüklediğiniz fotoğrafları bırakır"
                     >
-                      <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                      Eksik Fotoğraflara Vesikalık Ata
+                      <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+                      Sistem Fotoğraflarını Temizle
                     </button>
                   </div>
                 </div>
@@ -2430,14 +2413,24 @@ export default function App() {
                     {missingPhotosCount > 0 && (
                       <button
                         type="button"
-                        onClick={handleAutoFillMissingPhotos}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg transition-colors whitespace-nowrap cursor-pointer shadow-2xs"
-                        title="Fotoğrafı olmayan tüm öğrencilere otomatik standart vesikalık portre oluştur"
+                        onClick={handleRemoveStudentsWithoutPhotos}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors whitespace-nowrap cursor-pointer shadow-2xs"
+                        title="Fotoğrafı olmayan / devamsız öğrencileri listeden tamamen siler (kimlik basılmaz)"
                       >
-                        <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                        <span>Eksikleri Tamamla ({missingPhotosCount})</span>
+                        <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                        <span>Fotoğrafsızları Sil ({missingPhotosCount})</span>
                       </button>
                     )}
+
+                    <button
+                      type="button"
+                      onClick={handlePurgeSystemAvatars}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition-colors whitespace-nowrap cursor-pointer shadow-2xs"
+                      title="Sistemin otomatik atadığı yapay fotoğrafları siler, sadece elle yüklediğiniz fotoğrafları bırakır"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Sistem Fotolarını Sil</span>
+                    </button>
 
                     {matchedPhotosCount > 0 && (
                       <button
@@ -5998,20 +5991,42 @@ export default function App() {
                   Baskıya Hazır Toplu Kimlik Listesi
                 </span>
                 <h2 className="text-lg font-bold text-slate-900">
-                  {students.length} Öğrenci Kimlik Kartı (
+                  {onlyPrintWithPhotos
+                    ? `${printableBatchStudents.length} Fotoğraflı Öğrenci Kimlik Kartı`
+                    : `${students.length} Öğrenci Kimlik Kartı`}{' '}
+                  (
                   {activeTemplate.enableBackSide
                     ? 'Çift Taraflı: Ön + Arka Yüz'
                     : 'Tek Taraflı: Sadece Ön Yüz'}
                   ) Çıktıya Hazır
                 </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {activeTemplate.enableBackSide
-                    ? 'A4 çoklu baskıda her ön yüz sayfasının hemen arkasına, arkalı-önlü (dubleks) yazıcılarla tam hizalı arka yüz sayfası otomatik eklenir.'
-                    : 'İsterseniz sağdaki kutucuktan arka yüz tasarımını da aktif ederek çift taraflı PDF alabilirsiniz.'}
-                </p>
+                <div className="text-xs text-slate-500 mt-1">
+                  {onlyPrintWithPhotos && missingPhotosCount > 0 ? (
+                    <span className="inline-flex items-center gap-1.5 text-emerald-900 font-semibold bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      Fotoğrafı olmayan / devamsız {missingPhotosCount} öğrenci baskıdan hariç tutuldu. Yalnızca fotoğrafı yüklenmiş {matchedPhotosCount} öğrencinin kimliği basılacak.
+                    </span>
+                  ) : (
+                    activeTemplate.enableBackSide
+                      ? 'A4 çoklu baskıda her ön yüz sayfasının hemen arkasına, arkalı-önlü (dubleks) yazıcılarla tam hizalı arka yüz sayfası otomatik eklenir.'
+                      : 'İsterseniz sağdaki kutucuktan arka yüz tasarımını da aktif ederek çift taraflı PDF alabilirsiniz.'
+                  )}
+                </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
+                {/* Sadece Fotoğraflı Öğrencileri Bas Toggle */}
+                <label className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-300 rounded-lg text-xs font-bold text-emerald-950 cursor-pointer shadow-2xs">
+                  <input
+                    type="checkbox"
+                    checked={onlyPrintWithPhotos}
+                    onChange={(e) => setOnlyPrintWithPhotos(e.target.checked)}
+                    className="rounded border-emerald-400 text-emerald-600 focus:ring-emerald-600 w-4 h-4"
+                  />
+                  <ImageIcon className="w-4 h-4 text-emerald-700" />
+                  <span>Sadece Fotoğraflıları Bas ({matchedPhotosCount})</span>
+                </label>
+
                 {/* Optional Watermark Quick Toggle inside Batch Preview */}
                 <label className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 cursor-pointer">
                   <input
@@ -6069,7 +6084,7 @@ export default function App() {
                   >
                     A4 Çoklu Sayfa (
                     {Math.ceil(
-                      students.length /
+                      printableBatchStudents.length /
                         (activeTemplate.orientation === 'landscape' ? 10 : 9)
                     ) * (activeTemplate.enableBackSide ? 2 : 1)}{' '}
                     Sayfa)
@@ -6121,7 +6136,7 @@ export default function App() {
                 <div className="flex items-center gap-1.5">
                   <button
                     type="button"
-                    disabled={students.length === 0}
+                    disabled={printableBatchStudents.length === 0}
                     onClick={() => handleExportCorelSvg('front')}
                     className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-amber-950 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-xl shadow-2xs transition-colors cursor-pointer whitespace-nowrap"
                     title="CorelDRAW için kesim kılavuzlu A4 montaj tabakası (.SVG vektörel dosya)"
@@ -6131,7 +6146,7 @@ export default function App() {
                   </button>
                   <button
                     type="button"
-                    disabled={isExportingCorel || students.length === 0}
+                    disabled={isExportingCorel || printableBatchStudents.length === 0}
                     onClick={handleExportCorelZip}
                     className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-amber-950 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-xl shadow-2xs transition-colors cursor-pointer whitespace-nowrap"
                     title="Tüm öğrencilerin tek tek CR80 (85.6x54mm) vektörel SVG kartlarını ve A4 montaj tabakalarını içeren tam ZIP paketi"
@@ -6155,28 +6170,17 @@ export default function App() {
                   </button>
                 )}
 
-                {/* Eksik Fotoğrafları Otomatik Tamamla Butonu */}
-                {missingPhotosCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={handleAutoFillMissingPhotos}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-amber-950 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-xl shadow-xs transition-colors whitespace-nowrap cursor-pointer"
-                    title="Fotoğrafı olmayan tüm öğrencilere otomatik resmi standartta vesikalık ata"
-                  >
-                    <Sparkles className="w-4 h-4 text-amber-700" />
-                    <span>Fotoğrafları Tamamla ({missingPhotosCount})</span>
-                  </button>
-                )}
-
                 <button
                   type="button"
-                  disabled={isExportingPdf || students.length === 0}
-                  onClick={() => handleExportBatchPdf(false)}
+                  disabled={isExportingPdf || printableBatchStudents.length === 0}
+                  onClick={() => handleExportBatchPdf(onlyPrintWithPhotos)}
                   className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-xl shadow-xs transition-colors whitespace-nowrap cursor-pointer"
                 >
                   <Download className="w-4 h-4" />
                   {isExportingPdf && exportProgress
                     ? `PDF Hazırlanıyor (${exportProgress.current}/${exportProgress.total})`
+                    : onlyPrintWithPhotos
+                    ? `PDF İndir (${printableBatchStudents.length} Fotoğraflı Öğrenci)`
                     : `Tümünü PDF İndir (${students.length} Öğrenci)`}
                 </button>
               </div>
@@ -6200,7 +6204,7 @@ export default function App() {
                   : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4'
               }`}
             >
-              {students.slice(0, batchPreviewLimit).map((student, idx) => (
+              {printableBatchStudents.slice(0, batchPreviewLimit).map((student, idx) => (
                 <div
                   key={student.id}
                   className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col justify-between gap-3 shadow-2xs hover:shadow-xs transition-shadow"
@@ -6269,27 +6273,27 @@ export default function App() {
             </div>
 
             {/* Fast-Load Pagination & View All Controls for Tab 4 */}
-            {students.length > 12 && (
+            {printableBatchStudents.length > 12 && (
               <div className="p-4 bg-white border border-slate-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
                 <div className="text-slate-600 font-medium">
-                  {Math.min(batchPreviewLimit, students.length)} / {students.length} Öğrenci Kartı Önizleniyor (Hızlı Geçiş Modu: %90 daha az bellek tüketimi)
+                  {Math.min(batchPreviewLimit, printableBatchStudents.length)} / {printableBatchStudents.length} Öğrenci Kartı Önizleniyor (Hızlı Geçiş Modu: %90 daha az bellek tüketimi)
                 </div>
                 <div className="flex items-center gap-2">
-                  {batchPreviewLimit < students.length ? (
+                  {batchPreviewLimit < printableBatchStudents.length ? (
                     <>
                       <button
                         type="button"
-                        onClick={() => setBatchPreviewLimit((prev) => Math.min(prev + 12, students.length))}
+                        onClick={() => setBatchPreviewLimit((prev) => Math.min(prev + 12, printableBatchStudents.length))}
                         className="px-3 py-1.5 font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
                       >
                         +12 Kart Daha Yükle
                       </button>
                       <button
                         type="button"
-                        onClick={() => setBatchPreviewLimit(students.length)}
+                        onClick={() => setBatchPreviewLimit(printableBatchStudents.length)}
                         className="px-3.5 py-1.5 font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer"
                       >
-                        Tümünü Göster ({students.length} Kart)
+                        Tümünü Göster ({printableBatchStudents.length} Kart)
                       </button>
                     </>
                   ) : (

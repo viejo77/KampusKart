@@ -20,6 +20,8 @@ import {
   sanitizeXmlId,
 } from './svgCardRenderer';
 import {
+  isRealUserPhoto,
+  isSystemGeneratedPhoto,
   normalizePhotoToStandardJpeg,
   normalizeStudentsPhotos,
 } from './photoNormalizer';
@@ -643,43 +645,10 @@ export function parseSpreadsheetFile(
             let photoDataUrl = matchedPhoto?.dataUrl;
             let photoFileName = matchedPhoto?.fileName;
 
-            if (!photoDataUrl) {
-              const skinPalette = ['#f5d0b5', '#ecc1a1', '#f7d7c4', '#e5b899', '#f3cfb6', '#eab996'];
-              const hairPalette = ['#271c19', '#452c1e', '#5c3a21', '#1c1917', '#3b2314', '#292524'];
-              const shirtPalette = ['#1e3a8a', '#0f172a', '#1e293b', '#0369a1', '#065f46', '#334155'];
-              const bgPalette = ['#e2e8f0', '#dbeafe', '#e0f2fe', '#f1f5f9', '#f8fafc', '#ecfdf5'];
-
-              const lowerName = (fullName || '').toLowerCase();
-              const isFemale =
-                lowerName.endsWith('a') ||
-                lowerName.endsWith('e') ||
-                lowerName.includes('elif') ||
-                lowerName.includes('zeynep') ||
-                lowerName.includes('defne') ||
-                lowerName.includes('ayşe') ||
-                lowerName.includes('fatma') ||
-                idx % 2 === 0;
-
-              const initials = (fullName || 'ÖĞ')
-                .split(/\s+/)
-                .map((n) => n[0])
-                .join('')
-                .toLocaleUpperCase('tr-TR')
-                .slice(0, 2) || 'ÖĞ';
-
-              const rawNumMatch = (formattedStudentNumber || rawNo).match(/\d+/);
-              const rawNum = rawNumMatch ? rawNumMatch[0] : String(1000 + idx);
-
-              photoDataUrl = createStudentPortraitDataUrl(
-                initials,
-                bgPalette[idx % bgPalette.length],
-                shirtPalette[idx % shirtPalette.length],
-                hairPalette[idx % hairPalette.length],
-                skinPalette[idx % skinPalette.length],
-                isFemale ? 'f' : 'm',
-                rawNum
-              );
-              photoFileName = `${rawNum}.jpg`;
+            // Never attach system-generated cartoon avatars to newly imported students
+            if (photoDataUrl && isSystemGeneratedPhoto(photoDataUrl, photoFileName)) {
+              photoDataUrl = undefined;
+              photoFileName = undefined;
             }
 
             return {
