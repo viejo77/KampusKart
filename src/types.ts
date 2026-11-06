@@ -89,6 +89,7 @@ export interface CardTemplate {
   customBackgroundUrl?: string;
   customBackBackgroundUrl?: string;
   schoolLogoUrl?: string;
+  showSchoolLogo?: boolean; // When false, school logo is hidden from all cards
   schoolLogoStyle?: 'badge' | 'transparent'; // Badge backing for high-contrast crisp PNG logo rendering
   schoolLogoScale?: number; // 70 to 140 (%) scale multiplier
   principalSignatureUrl?: string; // Optional uploaded signature/stamp image for back side

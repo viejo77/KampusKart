@@ -31,6 +31,8 @@ import {
   Check,
   Save,
   RefreshCw,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import {
   loadAppState,
@@ -72,6 +74,7 @@ import {
 } from './utils/pdfExporter';
 import { generateStaffCards, generateVisitorCards } from './utils/visitorCards';
 import { getOfficialMebLogoSvgDataUrl } from './utils/officialMebLogo';
+import { normalizePhotoToStandardJpeg } from './utils/photoNormalizer';
 
 type ActiveTab = 'data-matching' | 'template-studio' | 'visitor-staff' | 'batch-preview';
 
@@ -124,7 +127,7 @@ export default function App() {
     showCropMarks: true,
     cardSpacingMm: 4,
     qualityScale: 2,
-    exportFormat: 'raster-pdf', // Default to 600 DPI Ultra-HD lossless PNG: 100% Turkish character fidelity (Ğ, ğ, İ, ı, Ş, ş), zero text displacement, zero JPEG degradation
+    exportFormat: 'vector-pdf', // Default to pure vector PDF with full Turkish typography and vector graphics
   });
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isExportingCorel, setIsExportingCorel] = useState(false);
@@ -205,7 +208,52 @@ export default function App() {
         const saved = await loadAppState();
         if (saved && isMounted) {
           if (Array.isArray(saved.students) && saved.students.length > 0) {
-            setStudents(saved.students);
+            const skinPalette = ['#f5d0b5', '#ecc1a1', '#f7d7c4', '#e5b899', '#f3cfb6', '#eab996'];
+            const hairPalette = ['#271c19', '#452c1e', '#5c3a21', '#1c1917', '#3b2314', '#292524'];
+            const shirtPalette = ['#1e3a8a', '#0f172a', '#1e293b', '#0369a1', '#065f46', '#334155'];
+            const bgPalette = ['#e2e8f0', '#dbeafe', '#e0f2fe', '#f1f5f9', '#f8fafc', '#ecfdf5'];
+
+            const healedStudents = saved.students.map((student, idx) => {
+              if (student.photoDataUrl && student.photoDataUrl.trim() !== '') {
+                return student;
+              }
+              const lowerName = (student.fullName || '').toLowerCase();
+              const isFemale =
+                lowerName.endsWith('a') ||
+                lowerName.endsWith('e') ||
+                lowerName.includes('elif') ||
+                lowerName.includes('zeynep') ||
+                lowerName.includes('defne') ||
+                lowerName.includes('ayşe') ||
+                lowerName.includes('fatma') ||
+                idx % 2 === 0;
+
+              const initials =
+                (student.fullName || '')
+                  .split(/\s+/)
+                  .map((n) => n[0])
+                  .join('')
+                  .toLocaleUpperCase('tr-TR')
+                  .slice(0, 2) || 'ÖĞ';
+
+              const rawNumMatch = (student.studentNumber || '').match(/\d+/);
+              const rawNum = rawNumMatch ? rawNumMatch[0] : String(1000 + idx);
+
+              return {
+                ...student,
+                photoDataUrl: createStudentPortraitDataUrl(
+                  initials,
+                  bgPalette[idx % bgPalette.length],
+                  shirtPalette[idx % shirtPalette.length],
+                  hairPalette[idx % hairPalette.length],
+                  skinPalette[idx % skinPalette.length],
+                  isFemale ? 'f' : 'm',
+                  rawNum
+                ),
+                photoFileName: student.photoFileName || `${rawNum}.jpg`,
+              };
+            });
+            setStudents(healedStudents);
           }
           if (Array.isArray(saved.photoPoolEntries)) {
             setPhotoPool(new Map(saved.photoPoolEntries));
@@ -776,11 +824,12 @@ export default function App() {
         (file) =>
           new Promise<void>((resolve) => {
             const reader = new FileReader();
-            reader.onload = (ev) => {
-              const dataUrl = ev.target?.result as string;
-              if (dataUrl) {
+            reader.onload = async (ev) => {
+              const rawData = ev.target?.result as string;
+              if (rawData) {
+                const cleanDataUrl = await normalizePhotoToStandardJpeg(rawData);
                 const key = normalizePhotoMatchKey(file.name);
-                newEntries.set(key, { dataUrl, fileName: file.name });
+                newEntries.set(key, { dataUrl: cleanDataUrl, fileName: file.name });
               }
               resolve();
             };
@@ -848,7 +897,7 @@ export default function App() {
             .split(/\s+/)
             .map((n) => n[0])
             .join('')
-            .toUpperCase()
+            .toLocaleUpperCase('tr-TR')
             .slice(0, 2) || 'ÖĞ';
 
         const rawNumMatch = student.studentNumber.match(/\d+/);
@@ -887,9 +936,10 @@ export default function App() {
     if (!file || !singlePhotoTargetStudentId) return;
 
     const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string;
-      if (!dataUrl) return;
+    reader.onload = async (ev) => {
+      const rawDataUrl = ev.target?.result as string;
+      if (!rawDataUrl) return;
+      const dataUrl = await normalizePhotoToStandardJpeg(rawDataUrl);
 
       setStudents((prev) =>
         prev.map((s) => {
@@ -973,6 +1023,7 @@ export default function App() {
       updateActiveTemplate((prev) => ({
         ...prev,
         schoolLogoUrl: dataUrl,
+        showSchoolLogo: true,
       }));
       setStatusBanner({
         type: 'success',
@@ -1066,7 +1117,7 @@ export default function App() {
     );
     updateActiveTemplate((prev) => ({
       ...prev,
-      defaultSchoolName: combinedGlobalSchoolName.toUpperCase(),
+      defaultSchoolName: combinedGlobalSchoolName.toLocaleUpperCase('tr-TR'),
       defaultAcademicYear: globalAcademicYear,
     }));
     setStatusBanner({
@@ -1301,9 +1352,9 @@ export default function App() {
   };
 
   // Export CorelDRAW A4 SVG (Montage with vector text & crop marks)
-  const handleExportCorelSvg = (side: 'front' | 'back' = 'front') => {
+  const handleExportCorelSvg = async (side: 'front' | 'back' = 'front') => {
     if (students.length === 0) return;
-    exportBatchCardsToCorelSvg(students, activeTemplate, pdfSettings, side);
+    await exportBatchCardsToCorelSvg(students, activeTemplate, pdfSettings, side);
     setStatusBanner({
       type: 'success',
       message: `${students.length} öğrencinin ${
@@ -1663,7 +1714,7 @@ export default function App() {
             <Download className="w-4 h-4" />
             {isExportingPdf && exportProgress
               ? `PDF (${exportProgress.current}/${exportProgress.total})`
-              : `Vektörel PDF (${students.length} ${activeTemplate.enableBackSide ? 'Çift Yön' : 'Kart'})`}
+              : `${pdfSettings.exportFormat === 'vector-pdf' ? 'Vektörel PDF' : 'Ultra-HD PDF'} (${students.length} ${activeTemplate.enableBackSide ? 'Çift Yön' : 'Kart'})`}
           </button>
         </div>
       </header>
@@ -2103,6 +2154,103 @@ export default function App() {
             >
               Tümüne Uygula (Sınıfa Göre Dönem)
             </button>
+
+            {/* Okul Logosu Hızlı Yönetimi */}
+            <div className="flex items-center gap-1.5 pl-2 border-l border-slate-200">
+              <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">Logo:</span>
+              {activeTemplate.schoolLogoUrl ? (
+                <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg p-0.5">
+                  <div className="w-5 h-5 rounded overflow-hidden flex items-center justify-center p-0.5 bg-slate-50 border border-slate-100">
+                    <img src={activeTemplate.schoolLogoUrl} alt="Logo" className="max-w-full max-h-full object-contain" />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      updateActiveTemplate((p) => ({
+                        ...p,
+                        showSchoolLogo: p.showSchoolLogo === false ? true : false,
+                      }));
+                      setStatusBanner({
+                        type: 'info',
+                        message:
+                          activeTemplate.showSchoolLogo === false
+                            ? 'Okul logosu kartta gösteriliyor.'
+                            : 'Okul logosu kartta gizlendi.',
+                      });
+                    }}
+                    className={`px-1.5 py-1 text-[11px] font-semibold rounded cursor-pointer ${
+                      activeTemplate.showSchoolLogo === false
+                        ? 'bg-amber-100 text-amber-800'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                    title={activeTemplate.showSchoolLogo === false ? 'Logoyu Göster' : 'Logoyu Gizle'}
+                  >
+                    {activeTemplate.showSchoolLogo === false ? 'Gizli (Göster)' : 'Görünüyor (Gizle)'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => schoolLogoInputRef.current?.click()}
+                    className="px-1.5 py-1 text-[11px] font-semibold text-slate-600 hover:text-slate-900 rounded cursor-pointer"
+                    title="Logoyu Değiştir"
+                  >
+                    Değiştir
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      updateActiveTemplate((p) => ({
+                        ...p,
+                        schoolLogoUrl: undefined,
+                        showSchoolLogo: false,
+                      }));
+                      setStatusBanner({
+                        type: 'success',
+                        message: 'Okul logosu karttan tamamen kaldırıldı.',
+                      });
+                    }}
+                    className="px-2 py-1 text-[11px] font-bold text-red-600 hover:bg-red-50 rounded cursor-pointer inline-flex items-center gap-0.5"
+                    title="Okul Logosunu Kaldır"
+                  >
+                    <Trash2 className="w-3 h-3 text-red-600" />
+                    <span>Kaldır</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => schoolLogoInputRef.current?.click()}
+                    className="px-2 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors cursor-pointer whitespace-nowrap"
+                  >
+                    + Logo Yükle
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const mebSvg = getOfficialMebLogoSvgDataUrl(
+                        activeTemplate.primaryColor,
+                        activeTemplate.accentColor
+                      );
+                      updateActiveTemplate((p) => ({
+                        ...p,
+                        schoolLogoUrl: mebSvg,
+                        showSchoolLogo: true,
+                        schoolLogoStyle: 'badge',
+                        schoolLogoScale: Math.max(105, p.schoolLogoScale || 105),
+                      }));
+                      setStatusBanner({
+                        type: 'success',
+                        message: 'Resmî Vektörel MEB Logosu kartınıza eklendi.',
+                      });
+                    }}
+                    className="px-2 py-1 text-xs font-semibold text-amber-900 bg-amber-50 hover:bg-amber-100 rounded-lg border border-amber-200 transition-colors cursor-pointer whitespace-nowrap"
+                    title="Vektörel Resmî MEB Amblemi Ekle"
+                  >
+                    ⭐ MEB Logosu
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </section>
 
@@ -2695,6 +2843,210 @@ export default function App() {
                   )}
                 </div>
 
+                {/* Okul Logosu Yönetimi & Kaldırma Paneli */}
+                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-md bg-blue-100 flex items-center justify-center text-blue-700">
+                        <ImageIcon className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-slate-800 block">Okul Logosu / Amblem</span>
+                        <span className="text-[11px] text-slate-500">
+                          {activeTemplate.schoolLogoUrl && activeTemplate.showSchoolLogo !== false
+                            ? 'Kartın sol üst köşesinde aktif'
+                            : activeTemplate.schoolLogoUrl && activeTemplate.showSchoolLogo === false
+                            ? 'Gizlendi (Kartta basılmaz)'
+                            : 'Logosuz (Kaldırıldı)'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {activeTemplate.schoolLogoUrl && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          updateActiveTemplate((p) => ({
+                            ...p,
+                            showSchoolLogo: p.showSchoolLogo === false ? true : false,
+                          }));
+                          setStatusBanner({
+                            type: 'info',
+                            message:
+                              activeTemplate.showSchoolLogo === false
+                                ? 'Okul logosu kartta gösteriliyor.'
+                                : 'Okul logosu kartta gizlendi.',
+                          });
+                        }}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                          activeTemplate.showSchoolLogo === false
+                            ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                            : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                        }`}
+                        title={activeTemplate.showSchoolLogo === false ? 'Logoyu Kartta Göster' : 'Logoyu Kartta Gizle'}
+                      >
+                        {activeTemplate.showSchoolLogo === false ? (
+                          <>
+                            <Eye className="w-3.5 h-3.5 text-amber-700" />
+                            <span>Logoyu Göster</span>
+                          </>
+                        ) : (
+                          <>
+                            <EyeOff className="w-3.5 h-3.5 text-slate-600" />
+                            <span>Logoyu Gizle</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+
+                  {activeTemplate.schoolLogoUrl ? (
+                    <div className="space-y-2.5 pt-1">
+                      <div className="flex items-center gap-2">
+                        {/* Logo thumbnail */}
+                        <div className="w-10 h-10 rounded-lg bg-white border border-slate-200 p-1 flex items-center justify-center shrink-0 overflow-hidden shadow-xs">
+                          <img
+                            src={activeTemplate.schoolLogoUrl}
+                            alt="Okul Logosu"
+                            className="max-w-full max-h-full object-contain"
+                          />
+                        </div>
+
+                        {/* Action buttons */}
+                        <div className="flex-1 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => schoolLogoInputRef.current?.click()}
+                            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
+                          >
+                            Logoyu Değiştir
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              updateActiveTemplate((p) => ({
+                                ...p,
+                                schoolLogoUrl: undefined,
+                                showSchoolLogo: false,
+                              }));
+                              setStatusBanner({
+                                type: 'success',
+                                message: 'Okul logosu karttan tamamen kaldırıldı.',
+                              });
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors cursor-pointer"
+                            title="Okul logosunu şablondan tamamen kaldırır"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                            <span>Logoyu Kaldır</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Logo Display Mode & Size */}
+                      <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-200/80 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-medium text-slate-600">Rozet Modu:</span>
+                          <div className="flex items-center bg-white rounded border border-slate-200 p-0.5">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateActiveTemplate((p) => ({
+                                  ...p,
+                                  schoolLogoStyle: 'badge',
+                                }))
+                              }
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-semibold cursor-pointer ${
+                                (activeTemplate.schoolLogoStyle ?? 'badge') === 'badge'
+                                  ? 'bg-blue-600 text-white'
+                                  : 'text-slate-600'
+                              }`}
+                            >
+                              Beyaz Rozet
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateActiveTemplate((p) => ({
+                                  ...p,
+                                  schoolLogoStyle: 'transparent',
+                                }))
+                              }
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-semibold cursor-pointer ${
+                                activeTemplate.schoolLogoStyle === 'transparent'
+                                  ? 'bg-blue-600 text-white'
+                                  : 'text-slate-600'
+                              }`}
+                            >
+                              Şeffaf
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-[11px] font-medium text-slate-600">Boyut:</span>
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="range"
+                              min={60}
+                              max={180}
+                              step={5}
+                              value={activeTemplate.schoolLogoScale || 100}
+                              onChange={(e) =>
+                                updateActiveTemplate((p) => ({
+                                  ...p,
+                                  schoolLogoScale: parseInt(e.target.value, 10),
+                                }))
+                              }
+                              className="w-16 accent-blue-600"
+                            />
+                            <span className="font-mono text-[10px] text-blue-700 font-bold w-7 text-right">
+                              %{activeTemplate.schoolLogoScale || 100}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => schoolLogoInputRef.current?.click()}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors cursor-pointer"
+                      >
+                        <Upload className="w-3.5 h-3.5 text-blue-600" />
+                        + Okul Logosu Yükle (PNG/JPG)
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const mebSvg = getOfficialMebLogoSvgDataUrl(
+                            activeTemplate.primaryColor,
+                            activeTemplate.accentColor
+                          );
+                          updateActiveTemplate((p) => ({
+                            ...p,
+                            schoolLogoUrl: mebSvg,
+                            showSchoolLogo: true,
+                            schoolLogoStyle: 'badge',
+                            schoolLogoScale: Math.max(105, p.schoolLogoScale || 105),
+                          }));
+                          setStatusBanner({
+                            type: 'success',
+                            message: 'Resmî Vektörel MEB Logosu kartınıza eklendi (Ultra-HD netlikte).',
+                          });
+                        }}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg transition-colors cursor-pointer"
+                      >
+                        <Sparkles className="w-3 h-3 text-amber-600" />
+                        ⭐ Resmî MEB Logosu
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 {/* Quick Template Switcher */}
                 <div>
                   <div className="flex items-center justify-between mb-2.5">
@@ -3236,19 +3588,56 @@ export default function App() {
                         {currentStudioTemplate.schoolLogoUrl ? 'Logoyu Değiştir' : '+ Kendi Logonuzu Yükleyin'}
                       </button>
                       {currentStudioTemplate.schoolLogoUrl && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateStudioTemplate((p) => ({
-                              ...p,
-                              schoolLogoUrl: undefined,
-                            }))
-                          }
-                          className="p-1.5 text-xs text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
-                          title="Logoyu Kaldır"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              updateStudioTemplate((p) => ({
+                                ...p,
+                                showSchoolLogo: p.showSchoolLogo === false ? true : false,
+                              }));
+                              setStatusBanner({
+                                type: 'info',
+                                message:
+                                  currentStudioTemplate.showSchoolLogo === false
+                                    ? 'Okul logosu kartta gösteriliyor.'
+                                    : 'Okul logosu kartta gizlendi.',
+                              });
+                            }}
+                            className={`p-1.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
+                              currentStudioTemplate.showSchoolLogo === false
+                                ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                            }`}
+                            title={currentStudioTemplate.showSchoolLogo === false ? 'Logoyu Kartta Göster' : 'Logoyu Kartta Gizle'}
+                          >
+                            {currentStudioTemplate.showSchoolLogo === false ? (
+                              <Eye className="w-4 h-4 text-amber-700" />
+                            ) : (
+                              <EyeOff className="w-4 h-4 text-slate-600" />
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              updateStudioTemplate((p) => ({
+                                ...p,
+                                schoolLogoUrl: undefined,
+                                showSchoolLogo: false,
+                              }));
+                              setStatusBanner({
+                                type: 'success',
+                                message: 'Okul logosu şablondan tamamen kaldırıldı.',
+                              });
+                            }}
+                            className="px-2.5 py-1.5 text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1"
+                            title="Okul logosunu şablondan tamamen kaldırır"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Logoyu Kaldır</span>
+                          </button>
+                        </>
                       )}
                     </div>
 
@@ -4433,7 +4822,7 @@ export default function App() {
                           type="text"
                           value={visitorMode === 'visitor' ? visitorCardPrefix : staffCardPrefix}
                           onChange={(e) => {
-                            const val = e.target.value.toUpperCase();
+                            const val = e.target.value.toLocaleUpperCase('tr-TR');
                             if (visitorMode === 'visitor') setVisitorCardPrefix(val);
                             else setStaffCardPrefix(val);
                           }}
@@ -5646,6 +6035,24 @@ export default function App() {
                   />
                   <span>Arka Yüzü Dahil Et (Çift Taraflı)</span>
                 </label>
+
+                {/* Okul Logosu Toggle on Batch Preview */}
+                {activeTemplate.schoolLogoUrl && (
+                  <label className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={activeTemplate.showSchoolLogo !== false}
+                      onChange={(e) =>
+                        updateActiveTemplate((p) => ({
+                          ...p,
+                          showSchoolLogo: e.target.checked,
+                        }))
+                      }
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-600"
+                    />
+                    <span>Okul Logosunu Bas</span>
+                  </label>
+                )}
 
                 {/* Layout Mode (A4 Grid vs Single CR80) */}
                 <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">

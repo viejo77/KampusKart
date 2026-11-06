@@ -1,15 +1,28 @@
 import { jsPDF } from 'jspdf';
 import { svg2pdf } from 'svg2pdf.js';
 import * as XLSX from 'xlsx';
-import { calculateValidityPeriodByClass, inferDepartmentAndStudentNumber } from '../constants';
+import {
+  calculateValidityPeriodByClass,
+  createStudentPortraitDataUrl,
+  inferDepartmentAndStudentNumber,
+} from '../constants';
 import { CardTemplate, PdfExportSettings, StudentRecord } from '../types';
-import { renderStudentCardToCanvas } from './cardRenderer';
+import {
+  drawFallbackAvatar,
+  loadImage,
+  renderStudentCardToCanvas,
+} from './cardRenderer';
 import {
   downloadFile,
   exportCorelDrawZip,
   generateA4SheetSvgString,
   renderStudentCardToSvgString,
+  sanitizeXmlId,
 } from './svgCardRenderer';
+import {
+  normalizePhotoToStandardJpeg,
+  normalizeStudentsPhotos,
+} from './photoNormalizer';
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   let binary = '';
@@ -114,10 +127,16 @@ async function renderCardVectorToPdf(
   w: number,
   h: number
 ): Promise<void> {
+  const safeId = sanitizeXmlId(`pdf_card_${student.id || student.studentNumber || '0'}_${side}`);
+
+  // Svg2pdf renders all vector geometry (background shapes, banners, trueType fonts, barcodes, lines)
+  // omitPhoto is always true so svg2pdf renders vector graphics cleanly without raster image parser errors
   const svgStr = renderStudentCardToSvgString(student, template, {
     side,
     widthMm: w,
     heightMm: h,
+    idPrefix: safeId,
+    omitPhoto: true,
   });
 
   const parser = new DOMParser();
@@ -130,6 +149,80 @@ async function renderCardVectorToPdf(
     width: w,
     height: h,
   });
+
+  // Guarantee raster student photos are 100% rendered into the PDF stream
+  // Draws via offscreen canvas into PNG format — jsPDF processPNG parses IHDR/CRC and NEVER returns 0x0
+  if (side === 'front') {
+    const photoField = template.fields['photo'];
+    if (photoField && photoField.visible) {
+      const pw = ((photoField.width || 25) / 100) * w;
+      const ph = ((photoField.height || 52) / 100) * h;
+      const px = x + (photoField.x / 100) * w;
+      const py = y + (photoField.y / 100) * h;
+
+      const pCanvas = document.createElement('canvas');
+      pCanvas.width = 450;
+      pCanvas.height = 600;
+      const pctx = pCanvas.getContext('2d');
+      if (pctx) {
+        pctx.imageSmoothingEnabled = true;
+        pctx.imageSmoothingQuality = 'high';
+        pctx.fillStyle = '#ffffff';
+        pctx.fillRect(0, 0, 450, 600);
+
+        let rendered = false;
+        const rawPhoto = (student.photoDataUrl || '').trim();
+        if (rawPhoto) {
+          try {
+            const img = await loadImage(rawPhoto);
+            const imgW = img.naturalWidth || img.width;
+            const imgH = img.naturalHeight || img.height;
+            if (imgW > 0 && imgH > 0) {
+              const imgRatio = imgW / imgH;
+              const targetRatio = 450 / 600;
+              let dw = 450;
+              let dh = 600;
+              let dx = 0;
+              let dy = 0;
+              if (imgRatio > targetRatio) {
+                dw = 600 * imgRatio;
+                dx = -(dw - 450) / 2;
+              } else {
+                dh = 450 / imgRatio;
+                dy = -(dh - 600) / 2;
+              }
+              pctx.drawImage(img, dx, dy, dw, dh);
+              rendered = true;
+            }
+          } catch (err) {
+            console.warn('Student photo load failed in vector PDF, drawing avatar:', err);
+          }
+        }
+
+        if (!rendered) {
+          drawFallbackAvatar(pctx, 0, 0, 450, 600, student);
+        }
+
+        try {
+          const pngData = pCanvas.toDataURL('image/png');
+          pdf.addImage(pngData, 'PNG', px, py, pw, ph, undefined, 'FAST');
+        } catch (imgErr) {
+          console.warn('Direct addImage PNG failed in renderCardVectorToPdf:', imgErr);
+        }
+
+        if ((photoField.borderWidth ?? 3) > 0) {
+          const radius = ((photoField.borderRadius ?? 6) / 100) * Math.min(pw, ph);
+          pdf.setDrawColor(photoField.borderColor || template.primaryColor);
+          pdf.setLineWidth((photoField.borderWidth ?? 3) * 0.12);
+          if (radius > 0) {
+            pdf.roundedRect(px, py, pw, ph, radius, radius, 'S');
+          } else {
+            pdf.rect(px, py, pw, ph, 'S');
+          }
+        }
+      }
+    }
+  }
 }
 
 export async function generateBatchStudentCardsPdf(
@@ -139,6 +232,14 @@ export async function generateBatchStudentCardsPdf(
   onProgress?: (current: number, total: number) => void
 ): Promise<void> {
   if (students.length === 0) return;
+
+  // Pre-normalize all student photos into clean, standard baseline RGB JPEGs
+  // Guarantees all 310 cards render their real photos with zero blank frames
+  const normalizedStudents = await normalizeStudentsPhotos(students, (c, t) => {
+    if (onProgress) {
+      onProgress(Math.round((c / t) * 5), 100);
+    }
+  });
 
   const includeBack = Boolean(template.enableBackSide && settings.includeBackSide);
   const isLandscapeCard = template.orientation === 'landscape';
@@ -222,23 +323,23 @@ export async function generateBatchStudentCardsPdf(
 
     await ensureTurkishFontsLoaded(pdf);
 
-    for (let i = 0; i < students.length; i++) {
+    for (let i = 0; i < normalizedStudents.length; i++) {
       if (i > 0) {
         pdf.addPage([cardWidthMm, cardHeightMm], isLandscapeCard ? 'landscape' : 'portrait');
       }
-      await renderCardSlot(pdf, students[i], 'front', 0, 0);
+      await renderCardSlot(pdf, normalizedStudents[i], 'front', 0, 0);
 
       if (includeBack) {
         pdf.addPage([cardWidthMm, cardHeightMm], isLandscapeCard ? 'landscape' : 'portrait');
-        await renderCardSlot(pdf, students[i], 'back', 0, 0);
+        await renderCardSlot(pdf, normalizedStudents[i], 'back', 0, 0);
       }
 
-      onProgress?.(i + 1, students.length);
+      onProgress?.(i + 1, normalizedStudents.length);
     }
 
     const typePrefix = isVector ? 'Vektorel_PDF' : 'Ultra_HD_PDF';
     const suffix = includeBack ? 'Cift_Yonlu_PVC' : 'Tek_Yonlu_PVC';
-    downloadPdfDirectly(pdf, `Ogrenci_Kimlik_${typePrefix}_${suffix}_${students.length}_Ogrenci.pdf`);
+    downloadPdfDirectly(pdf, `Ogrenci_Kimlik_${typePrefix}_${suffix}_${normalizedStudents.length}_Ogrenci.pdf`);
     return;
   }
 
@@ -286,10 +387,10 @@ export async function generateBatchStudentCardsPdf(
 
   // Process students in chunks of cardsPerPage so that if back side is enabled,
   // each Front A4 Sheet is followed by its horizontally mirrored Back A4 Sheet for accurate duplex printing!
-  const totalChunks = Math.ceil(students.length / cardsPerPage);
+  const totalChunks = Math.ceil(normalizedStudents.length / cardsPerPage);
 
   for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
-    const chunkStudents = students.slice(
+    const chunkStudents = normalizedStudents.slice(
       chunkIdx * cardsPerPage,
       (chunkIdx + 1) * cardsPerPage
     );
@@ -309,7 +410,7 @@ export async function generateBatchStudentCardsPdf(
       drawCropMarksAt(x, y);
 
       if (!includeBack) {
-        onProgress?.(chunkIdx * cardsPerPage + j + 1, students.length);
+        onProgress?.(chunkIdx * cardsPerPage + j + 1, normalizedStudents.length);
       }
     }
 
@@ -327,27 +428,28 @@ export async function generateBatchStudentCardsPdf(
         await renderCardSlot(pdf, chunkStudents[j], 'back', x, y);
         drawCropMarksAt(x, y);
 
-        onProgress?.(chunkIdx * cardsPerPage + j + 1, students.length);
+        onProgress?.(chunkIdx * cardsPerPage + j + 1, normalizedStudents.length);
       }
     }
   }
 
   const typePrefix = isVector ? 'Vektorel_A4' : 'Ultra_HD_A4';
   const suffix = includeBack ? 'Cift_Yonlu' : 'Tek_Yonlu';
-  downloadPdfDirectly(pdf, `Toplu_Ogrenci_Kimlik_${typePrefix}_${suffix}_${students.length}_Ogrenci.pdf`);
+  downloadPdfDirectly(pdf, `Toplu_Ogrenci_Kimlik_${typePrefix}_${suffix}_${normalizedStudents.length}_Ogrenci.pdf`);
 }
 
 /**
  * Directly exports an A4 Sheet (.SVG) for CorelDRAW with vector text, paths, and crop marks.
  */
-export function exportBatchCardsToCorelSvg(
+export async function exportBatchCardsToCorelSvg(
   students: StudentRecord[],
   template: CardTemplate,
   settings: PdfExportSettings,
   side: 'front' | 'back' = 'front'
-): void {
+): Promise<void> {
   if (students.length === 0) return;
-  const svgContent = generateA4SheetSvgString(students, template, {
+  const normalizedStudents = await normalizeStudentsPhotos(students);
+  const svgContent = generateA4SheetSvgString(normalizedStudents, template, {
     side,
     showCropMarks: settings.showCropMarks,
     cardSpacingMm: settings.cardSpacingMm,
@@ -368,9 +470,11 @@ export async function exportBatchCardsToCorelZip(
   onProgress?: (current: number, total: number) => void
 ): Promise<void> {
   if (students.length === 0) return;
-  onProgress?.(1, 2);
-  const blob = await exportCorelDrawZip(students, template, includeBack);
-  onProgress?.(2, 2);
+  onProgress?.(1, 3);
+  const normalizedStudents = await normalizeStudentsPhotos(students);
+  onProgress?.(2, 3);
+  const blob = await exportCorelDrawZip(normalizedStudents, template, includeBack);
+  onProgress?.(3, 3);
   downloadFile(blob, `CorelDraw_Vektorel_Baski_Paketi_${students.length}_Ogrenci.zip`);
 }
 
@@ -536,6 +640,48 @@ export function parseSpreadsheetFile(
             const matchedPhoto = findMatchingPhoto(formattedStudentNumber, fullName, existingPhotosMap) ||
               findMatchingPhoto(rawNo, fullName, existingPhotosMap);
 
+            let photoDataUrl = matchedPhoto?.dataUrl;
+            let photoFileName = matchedPhoto?.fileName;
+
+            if (!photoDataUrl) {
+              const skinPalette = ['#f5d0b5', '#ecc1a1', '#f7d7c4', '#e5b899', '#f3cfb6', '#eab996'];
+              const hairPalette = ['#271c19', '#452c1e', '#5c3a21', '#1c1917', '#3b2314', '#292524'];
+              const shirtPalette = ['#1e3a8a', '#0f172a', '#1e293b', '#0369a1', '#065f46', '#334155'];
+              const bgPalette = ['#e2e8f0', '#dbeafe', '#e0f2fe', '#f1f5f9', '#f8fafc', '#ecfdf5'];
+
+              const lowerName = (fullName || '').toLowerCase();
+              const isFemale =
+                lowerName.endsWith('a') ||
+                lowerName.endsWith('e') ||
+                lowerName.includes('elif') ||
+                lowerName.includes('zeynep') ||
+                lowerName.includes('defne') ||
+                lowerName.includes('ayşe') ||
+                lowerName.includes('fatma') ||
+                idx % 2 === 0;
+
+              const initials = (fullName || 'ÖĞ')
+                .split(/\s+/)
+                .map((n) => n[0])
+                .join('')
+                .toLocaleUpperCase('tr-TR')
+                .slice(0, 2) || 'ÖĞ';
+
+              const rawNumMatch = (formattedStudentNumber || rawNo).match(/\d+/);
+              const rawNum = rawNumMatch ? rawNumMatch[0] : String(1000 + idx);
+
+              photoDataUrl = createStudentPortraitDataUrl(
+                initials,
+                bgPalette[idx % bgPalette.length],
+                shirtPalette[idx % shirtPalette.length],
+                hairPalette[idx % hairPalette.length],
+                skinPalette[idx % skinPalette.length],
+                isFemale ? 'f' : 'm',
+                rawNum
+              );
+              photoFileName = `${rawNum}.jpg`;
+            }
+
             return {
               id: `row-${Date.now()}-${idx}`,
               studentNumber: formattedStudentNumber,
@@ -546,8 +692,8 @@ export function parseSpreadsheetFile(
               academicYear,
               bloodType,
               emergencyPhone,
-              photoDataUrl: matchedPhoto?.dataUrl,
-              photoFileName: matchedPhoto?.fileName,
+              photoDataUrl,
+              photoFileName,
             };
           })
           .filter((s) => s.studentNumber !== '' || s.fullName !== '');

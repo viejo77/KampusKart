@@ -219,10 +219,6 @@ function drawBuiltInThemeBackground(
     ctx.fillRect(0, H * 0.945, W, H * 0.055);
     ctx.fillStyle = template.accentColor;
     ctx.fillRect(0, H * 0.935, W, H * 0.01);
-
-    if (!template.schoolLogoUrl) {
-      drawSchoolEmblem(ctx, W * 0.11, headerH * 0.52, headerH * 0.36, template.primaryColor, template.accentColor);
-    }
   } else if (template.id === 'modern-campus') {
     ctx.save();
     ctx.fillStyle = template.primaryColor;
@@ -247,10 +243,6 @@ function drawBuiltInThemeBackground(
 
     ctx.fillStyle = template.secondaryColor;
     ctx.fillRect(0, H * 0.94, W, H * 0.06);
-
-    if (!template.schoolLogoUrl) {
-      drawSchoolEmblem(ctx, W * 0.095, H * 0.11, H * 0.078, template.primaryColor, template.accentColor);
-    }
   } else if (template.id === 'emerald-college') {
     const headerH = H * 0.23;
     ctx.fillStyle = template.primaryColor;
@@ -266,10 +258,6 @@ function drawBuiltInThemeBackground(
 
     ctx.fillStyle = template.primaryColor;
     ctx.fillRect(0, H * 0.95, W, H * 0.05);
-
-    if (!template.schoolLogoUrl) {
-      drawSchoolEmblem(ctx, W * 0.1, headerH * 0.5, headerH * 0.35, template.primaryColor, template.accentColor);
-    }
   } else if (template.id === 'vertical-lanyard') {
     const headerH = H * 0.30;
     ctx.fillStyle = template.primaryColor;
@@ -407,7 +395,7 @@ async function renderCardWatermark(
   const rotationRad = ((wm.rotation ?? -25) * Math.PI) / 180;
 
   let logoImg: HTMLImageElement | null = null;
-  if (wm.type === 'logo' && template.schoolLogoUrl) {
+  if (wm.type === 'logo' && template.schoolLogoUrl && template.showSchoolLogo !== false) {
     try {
       logoImg = await loadImage(template.schoolLogoUrl);
     } catch {
@@ -442,15 +430,6 @@ async function renderCardWatermark(
         const drawW = aspect >= 1 ? targetSize : targetSize * aspect;
         const drawH = aspect >= 1 ? targetSize / aspect : targetSize;
         drawCrispLogo(ctx, logoImg, -drawW / 2, -drawH / 2, drawW, drawH);
-      } else {
-        drawSchoolEmblem(
-          ctx,
-          0,
-          0,
-          targetSize * 0.48,
-          template.primaryColor,
-          template.accentColor
-        );
       }
     } else {
       const fallbackText = template.cardTitleText ? template.cardTitleText.split(' ')[0] : 'ÖRNEK';
@@ -624,7 +603,7 @@ export async function renderStudentCardToCanvas(
         const labelFontSize = Math.max(11, Math.round(field.fontSize * 0.62));
         ctx.font = `600 ${labelFontSize}px "Plus Jakarta Sans", sans-serif`;
         ctx.fillStyle = '#64748b';
-        ctx.fillText(field.prefixText.toUpperCase(), px, py);
+        ctx.fillText(field.prefixText.toLocaleUpperCase('tr-TR'), px, py);
         valueOffsetY = py + labelFontSize + 4;
       }
 
@@ -678,7 +657,7 @@ export async function renderStudentCardToCanvas(
   // Render Background-layer Watermark on Front Side (behind student photo and text fields)
   await renderCardWatermark(ctx, template, W, H, 'front', 'background');
 
-  if (template.schoolLogoUrl) {
+  if (template.schoolLogoUrl && template.showSchoolLogo !== false) {
     try {
       const logoImg = await loadImage(template.schoolLogoUrl);
       const isModern = template.id === 'modern-campus';
@@ -838,7 +817,7 @@ export async function renderStudentCardToCanvas(
     else if (key === 'className') rawValue = student.fieldOfStudy || student.className || '-';
     else if (key === 'schoolName') rawValue = student.schoolName || template.defaultSchoolName;
     else if (key === 'academicYear') rawValue = student.academicYear || template.defaultAcademicYear;
-    else if (key === 'cardTitle') rawValue = template.cardTitleText || 'ÖĞRENCİ KİMLİK KARTI';
+    else if (key === 'cardTitle') rawValue = (template.cardTitleText || 'ÖĞRENCİ KİMLİK KARTI').toLocaleUpperCase('tr-TR');
 
     ctx.save();
     ctx.textAlign = field.align || 'left';
@@ -851,7 +830,7 @@ export async function renderStudentCardToCanvas(
       ctx.fillStyle = '#64748b';
       const prefixMaxWidth =
         photoLeft > 0 && px < photoLeft ? Math.max(30, photoLeft - px - 16) : undefined;
-      ctx.fillText(field.prefixText.toUpperCase(), px, py, prefixMaxWidth);
+      ctx.fillText(field.prefixText.toLocaleUpperCase('tr-TR'), px, py, prefixMaxWidth);
       valueOffsetY = py + labelFontSize + 4;
     }
 
@@ -1083,7 +1062,7 @@ export async function renderStudentCardToCanvas(
   ctx.restore();
 }
 
-function drawFallbackAvatar(
+export function drawFallbackAvatar(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,

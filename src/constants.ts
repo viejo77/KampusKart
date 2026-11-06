@@ -70,7 +70,7 @@ export function inferDepartmentAndStudentNumber(
   let prefix = '';
   const prefixMatch = cleanClass.match(/\b(AMP|ATP)\b/i);
   if (prefixMatch) {
-    prefix = prefixMatch[1].toUpperCase();
+    prefix = prefixMatch[1].toLocaleUpperCase('tr-TR');
   }
 
   // Prepend prefix to student number (e.g., "1205" with class "AMP 9-A" -> "AMP 1205")
@@ -169,7 +169,7 @@ export function createStudentPortraitDataUrl(
         : `<path d="M90 135 C86 78 115 65 150 65 C185 65 214 78 210 135 C198 102 180 94 150 94 C120 94 102 102 90 135 Z" fill="${hairHex}" />`
     }
   </svg>`;
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
 export function createDefaultBackFields(

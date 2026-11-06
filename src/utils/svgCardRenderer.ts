@@ -42,6 +42,124 @@ export function escapeXml(str: string): string {
 }
 
 /**
+ * Sanitizes any string into a valid XML ID / NCName (no spaces, only alphanumeric and _ -)
+ */
+export function sanitizeXmlId(input: string): string {
+  if (!input) return 'id_0';
+  const clean = input.replace(/[^a-zA-Z0-9_-]/g, '_');
+  return /^[a-zA-Z_]/.test(clean) ? clean : `id_${clean}`;
+}
+
+/**
+ * Extracts inner vector graphics from an SVG string or SVG data URI so it can be inlined directly
+ */
+export function extractSvgContent(svgStrOrDataUrl: string): { innerContent: string; viewBoxW: number; viewBoxH: number } | null {
+  try {
+    let raw = (svgStrOrDataUrl || '').trim();
+    if (!raw) return null;
+    if (raw.startsWith('data:image/svg+xml')) {
+      const commaIdx = raw.indexOf(',');
+      if (commaIdx !== -1) {
+        const meta = raw.slice(0, commaIdx);
+        const body = raw.slice(commaIdx + 1);
+        if (meta.includes('base64')) {
+          try {
+            raw = atob(body.replace(/\s/g, ''));
+          } catch {
+            raw = '';
+          }
+        } else {
+          try {
+            raw = decodeURIComponent(body);
+          } catch {
+            try {
+              raw = decodeURI(body);
+            } catch {
+              raw = body;
+            }
+          }
+        }
+      }
+    }
+    if (!raw.includes('<svg')) return null;
+
+    const vbMatch = raw.match(/viewBox=["']\s*([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s*["']/i);
+    const viewBoxW = vbMatch ? parseFloat(vbMatch[3]) : 300;
+    const viewBoxH = vbMatch ? parseFloat(vbMatch[4]) : 380;
+
+    const startTagEnd = raw.indexOf('>');
+    const closeTagStart = raw.lastIndexOf('</svg>');
+    if (startTagEnd !== -1 && closeTagStart !== -1 && closeTagStart > startTagEnd) {
+      const innerContent = raw.slice(startTagEnd + 1, closeTagStart);
+      return { innerContent, viewBoxW: viewBoxW > 0 ? viewBoxW : 300, viewBoxH: viewBoxH > 0 ? viewBoxH : 380 };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Generates rich, official MEB student portrait vector curves (for vector PDF and CorelDRAW)
+ * so NO student is ever rendered with an empty or broken photo box.
+ */
+export function generateStudentVectorPortraitSvg(student: StudentRecord, index: number = 0): string {
+  const skinPalette = ['#f5d0b5', '#ecc1a1', '#f7d7c4', '#e5b899', '#f3cfb6', '#eab996'];
+  const hairPalette = ['#271c19', '#452c1e', '#5c3a21', '#1c1917', '#3b2314', '#292524'];
+  const shirtPalette = ['#1e3a8a', '#0f172a', '#1e293b', '#0369a1', '#065f46', '#334155'];
+  const bgPalette = ['#e2e8f0', '#dbeafe', '#e0f2fe', '#f1f5f9', '#f8fafc', '#ecfdf5'];
+
+  const lowerName = (student.fullName || '').toLowerCase();
+  const isFemale =
+    lowerName.endsWith('a') ||
+    lowerName.endsWith('e') ||
+    lowerName.includes('elif') ||
+    lowerName.includes('zeynep') ||
+    lowerName.includes('defne') ||
+    lowerName.includes('ayşe') ||
+    lowerName.includes('fatma') ||
+    lowerName.includes('merve') ||
+    lowerName.includes('büşra') ||
+    lowerName.includes('irem') ||
+    index % 2 === 0;
+
+  const bgHex = bgPalette[index % bgPalette.length];
+  const shirtHex = shirtPalette[index % shirtPalette.length];
+  const hairHex = hairPalette[index % hairPalette.length];
+  const skinHex = skinPalette[index % skinPalette.length];
+
+  return `
+    <rect width="300" height="380" fill="${bgHex}" />
+    <circle cx="150" cy="145" r="130" fill="#ffffff" fill-opacity="0.22" />
+    <path d="M35 380 C35 288 85 265 150 265 C215 265 265 288 265 380 Z" fill="${shirtHex}" />
+    <polygon points="118,265 150,315 182,265" fill="#ffffff" />
+    <polygon points="143,288 157,288 160,355 150,368 140,355" fill="#991b1b" />
+    <rect x="128" y="215" width="44" height="62" rx="18" fill="${skinHex}" />
+    ${
+      isFemale
+        ? `<path d="M78 135 C70 210 78 265 95 280 C115 285 185 285 205 280 C222 265 230 210 222 135 Z" fill="${hairHex}" />`
+        : ''
+    }
+    <circle cx="88" cy="162" r="14" fill="${skinHex}" />
+    <circle cx="212" cy="162" r="14" fill="${skinHex}" />
+    <rect x="92" y="82" width="116" height="150" rx="56" fill="${skinHex}" />
+    <circle cx="126" cy="152" r="5.5" fill="#1e293b" />
+    <circle cx="174" cy="152" r="5.5" fill="#1e293b" />
+    <circle cx="128" cy="150" r="1.8" fill="#ffffff" />
+    <circle cx="176" cy="150" r="1.8" fill="#ffffff" />
+    <path d="M113 137 Q126 132 137 137" stroke="${hairHex}" stroke-width="4" stroke-linecap="round" fill="none" />
+    <path d="M163 137 Q174 132 187 137" stroke="${hairHex}" stroke-width="4" stroke-linecap="round" fill="none" />
+    <path d="M150 155 L146 176 L154 178" stroke="#c28e70" stroke-width="2.5" stroke-linecap="round" fill="none" />
+    <path d="M133 196 Q150 209 167 196" stroke="#a85544" stroke-width="3.5" stroke-linecap="round" fill="none" />
+    ${
+      isFemale
+        ? `<path d="M88 140 C85 82 115 66 150 66 C185 66 215 82 212 140 C200 108 175 96 150 98 C125 96 100 108 88 140 Z" fill="${hairHex}" />`
+        : `<path d="M90 135 C86 78 115 65 150 65 C185 65 214 78 210 135 C198 102 180 94 150 94 C120 94 102 102 90 135 Z" fill="${hairHex}" />`
+    }
+  `;
+}
+
+/**
  * Builds vector SVG background for front side based on built-in theme or custom image
  */
 function renderCardBackgroundSvg(
@@ -141,7 +259,7 @@ function renderSchoolLogoSvg(
   H: number,
   isLandscape: boolean
 ): string {
-  if (!template.schoolLogoUrl) return '';
+  if (!template.schoolLogoUrl || template.showSchoolLogo === false) return '';
 
   const isModern = template.id === 'modern-campus';
   const scaleMultiplier = (template.schoolLogoScale || 100) / 100;
@@ -194,7 +312,7 @@ function renderWatermarkSvg(
   const rotation = wm.rotation ?? -25;
 
   const renderSingle = (cx: number, cy: number, scaleFactor = 1) => {
-    if (wm.type === 'logo' && template.schoolLogoUrl) {
+    if (wm.type === 'logo' && template.schoolLogoUrl && template.showSchoolLogo !== false) {
       const size = Math.min(W, H) * (scalePct / 100) * scaleFactor;
       return `
         <g transform="translate(${cx}, ${cy}) rotate(${rotation})">
@@ -281,6 +399,7 @@ export function renderStudentCardToSvgString(
     heightMm?: number;
     idPrefix?: string;
     includeRootTag?: boolean;
+    omitPhoto?: boolean;
   }
 ): string {
   const side = options?.side || 'front';
@@ -289,7 +408,8 @@ export function renderStudentCardToSvgString(
   const H = isLandscape ? CARD_HEIGHT_LANDSCAPE : CARD_WIDTH_LANDSCAPE;
   const widthMm = options?.widthMm ?? (isLandscape ? CARD_WIDTH_MM_LANDSCAPE : CARD_HEIGHT_MM_LANDSCAPE);
   const heightMm = options?.heightMm ?? (isLandscape ? CARD_HEIGHT_MM_LANDSCAPE : CARD_WIDTH_MM_LANDSCAPE);
-  const prefix = options?.idPrefix || `card-${student.id || student.studentNumber || '0'}`;
+  const rawPrefix = options?.idPrefix || `card_${student.id || student.studentNumber || '0'}`;
+  const prefix = sanitizeXmlId(rawPrefix);
   const includeRoot = options?.includeRootTag ?? true;
 
   // ================= BACK SIDE VECTOR SVG =================
@@ -386,7 +506,7 @@ export function renderStudentCardToSvgString(
       if (field.showPrefix && field.prefixText) {
         const labelFontSize = Math.max(11, Math.round(field.fontSize * 0.62));
         const prefixBaselineY = py + Math.round(labelFontSize * 0.78);
-        prefixSvg = `<text x="${px.toFixed(1)}" y="${prefixBaselineY.toFixed(1)}" font-family="${SVG_FONT_FAMILY}" font-size="${labelFontSize}" font-weight="bold" fill="#64748b" text-anchor="${textAnchor}">${escapeXml(field.prefixText.toUpperCase())}</text>`;
+        prefixSvg = `<text x="${px.toFixed(1)}" y="${prefixBaselineY.toFixed(1)}" font-family="${SVG_FONT_FAMILY}" font-size="${labelFontSize}" font-weight="bold" fill="#64748b" text-anchor="${textAnchor}">${escapeXml(field.prefixText.toLocaleUpperCase('tr-TR'))}</text>`;
         valueOffsetY = py + labelFontSize + 4;
       }
 
@@ -461,22 +581,41 @@ export function renderStudentCardToSvgString(
       const pw = ((field.width || 25) / 100) * W;
       const ph = ((field.height || 52) / 100) * H;
       const radius = ((field.borderRadius ?? 6) / 100) * Math.min(pw, ph);
-      const clipId = `clip-${prefix}-photo`;
 
       let photoContentSvg = '';
-      if (student.photoDataUrl) {
+      const photoUrl = (student.photoDataUrl || '').trim();
+
+      // Check if photo is an SVG (data URI or inline svg)
+      const svgInfo = photoUrl ? extractSvgContent(photoUrl) : null;
+
+      if (svgInfo) {
+        // Native pure vector rendering for CorelDRAW and Vector PDF.
+        // Zero clipPath used: CorelDRAW hoists clipPaths to document root and ignores parent <g transform="...">,
+        // which previously caused all cards beyond the first row (cards 2..N) to be clipped out!
+        const scaleX = (pw / svgInfo.viewBoxW).toFixed(6);
+        const scaleY = (ph / svgInfo.viewBoxH).toFixed(6);
         photoContentSvg = `
-          <image href="${escapeXml(student.photoDataUrl)}" xlink:href="${escapeXml(student.photoDataUrl)}" x="${px.toFixed(1)}" y="${py.toFixed(1)}" width="${pw.toFixed(1)}" height="${ph.toFixed(1)}" clip-path="url(#${clipId})" preserveAspectRatio="xMidYMid slice" />
+          <g id="${prefix}_photo_vector" transform="translate(${px.toFixed(1)}, ${py.toFixed(1)}) scale(${scaleX}, ${scaleY})">
+            ${svgInfo.innerContent}
+          </g>
+        `;
+      } else if (photoUrl && (photoUrl.startsWith('data:image') || photoUrl.startsWith('http') || photoUrl.startsWith('blob:'))) {
+        // Real raster photo (JPEG, PNG, etc.) directly placed within the frame bounds.
+        // Strict SVG 1.1 specification: <image> uses href and xlink:href without non-standard rx/ry.
+        photoContentSvg = `
+          <image href="${escapeXml(photoUrl)}" xlink:href="${escapeXml(photoUrl)}" x="${px.toFixed(1)}" y="${py.toFixed(1)}" width="${pw.toFixed(1)}" height="${ph.toFixed(1)}" preserveAspectRatio="xMidYMid slice" />
         `;
       } else {
-        // Crisp vector silhouette fallback
-        const cx = px + pw / 2;
-        const headR = Math.min(pw, ph) * 0.22;
-        const bodyR = Math.min(pw, ph) * 0.44;
+        // No photo provided: dynamically render rich official vector student portrait so EVERY student has a complete portrait
+        const numMatch = (student.studentNumber || '').match(/\d+/);
+        const portraitIndex = numMatch ? parseInt(numMatch[0], 10) : 0;
+        const portraitInner = generateStudentVectorPortraitSvg(student, portraitIndex);
+        const scaleX = (pw / 300).toFixed(6);
+        const scaleY = (ph / 380).toFixed(6);
         photoContentSvg = `
-          <rect x="${px.toFixed(1)}" y="${py.toFixed(1)}" width="${pw.toFixed(1)}" height="${ph.toFixed(1)}" fill="#f1f5f9" clip-path="url(#${clipId})" />
-          <circle cx="${cx.toFixed(1)}" cy="${(py + ph * 0.38).toFixed(1)}" r="${headR.toFixed(1)}" fill="#cbd5e1" clip-path="url(#${clipId})" />
-          <circle cx="${cx.toFixed(1)}" cy="${(py + ph * 0.96).toFixed(1)}" r="${bodyR.toFixed(1)}" fill="#cbd5e1" clip-path="url(#${clipId})" />
+          <g id="${prefix}_photo_fallback_vector" transform="translate(${px.toFixed(1)}, ${py.toFixed(1)}) scale(${scaleX}, ${scaleY})">
+            ${portraitInner}
+          </g>
         `;
       }
 
@@ -485,13 +624,20 @@ export function renderStudentCardToSvgString(
         borderSvg = `<rect x="${px.toFixed(1)}" y="${py.toFixed(1)}" width="${pw.toFixed(1)}" height="${ph.toFixed(1)}" rx="${radius.toFixed(1)}" ry="${radius.toFixed(1)}" fill="none" stroke="${escapeXml(field.borderColor || template.primaryColor)}" stroke-width="${field.borderWidth ?? 3}" />`;
       }
 
+      if (options?.omitPhoto) {
+        // Photo content is omitted from the SVG so svg2pdf never attempts to decode/render raster images,
+        // leaving the photo box ready for direct 100% reliable jsPDF.addImage stream placement.
+        fieldsSvg += `
+          <g id="${prefix}_photo_group">
+            <rect x="${px.toFixed(1)}" y="${py.toFixed(1)}" width="${pw.toFixed(1)}" height="${ph.toFixed(1)}" rx="${radius.toFixed(1)}" ry="${radius.toFixed(1)}" fill="#f1f5f9" />
+            ${borderSvg}
+          </g>
+        `;
+        continue;
+      }
+
       fieldsSvg += `
-        <g id="${prefix}-photo-group">
-          <defs>
-            <clipPath id="${clipId}">
-              <rect x="${px.toFixed(1)}" y="${py.toFixed(1)}" width="${pw.toFixed(1)}" height="${ph.toFixed(1)}" rx="${radius.toFixed(1)}" ry="${radius.toFixed(1)}" />
-            </clipPath>
-          </defs>
+        <g id="${prefix}_photo_group">
           <rect x="${px.toFixed(1)}" y="${py.toFixed(1)}" width="${pw.toFixed(1)}" height="${ph.toFixed(1)}" rx="${radius.toFixed(1)}" ry="${radius.toFixed(1)}" fill="#f1f5f9" />
           ${photoContentSvg}
           ${borderSvg}
@@ -514,7 +660,7 @@ export function renderStudentCardToSvgString(
     else if (key === 'className') rawValue = student.fieldOfStudy || student.className || '-';
     else if (key === 'schoolName') rawValue = student.schoolName || template.defaultSchoolName;
     else if (key === 'academicYear') rawValue = student.academicYear || template.defaultAcademicYear;
-    else if (key === 'cardTitle') rawValue = template.cardTitleText || 'ÖĞRENCİ KİMLİK KARTI';
+    else if (key === 'cardTitle') rawValue = (template.cardTitleText || 'ÖĞRENCİ KİMLİK KARTI').toLocaleUpperCase('tr-TR');
 
     const textAnchor = field.align === 'center' ? 'middle' : field.align === 'right' ? 'end' : 'start';
     let valueOffsetY = py;
@@ -522,7 +668,7 @@ export function renderStudentCardToSvgString(
     if (field.showPrefix && field.prefixText) {
       const labelFontSize = Math.max(12, Math.round(field.fontSize * 0.56));
       const prefixBaselineY = py + Math.round(labelFontSize * 0.78);
-      prefixSvg = `<text x="${px.toFixed(1)}" y="${prefixBaselineY.toFixed(1)}" font-family="${SVG_FONT_FAMILY}" font-size="${labelFontSize}" font-weight="bold" fill="#64748b" text-anchor="${textAnchor}">${escapeXml(field.prefixText.toUpperCase())}</text>`;
+      prefixSvg = `<text x="${px.toFixed(1)}" y="${prefixBaselineY.toFixed(1)}" font-family="${SVG_FONT_FAMILY}" font-size="${labelFontSize}" font-weight="bold" fill="#64748b" text-anchor="${textAnchor}">${escapeXml(field.prefixText.toLocaleUpperCase('tr-TR'))}</text>`;
       valueOffsetY = py + labelFontSize + 4;
     }
 
@@ -648,14 +794,16 @@ export function generateA4SheetSvgString(
     const x = startX + actualCol * (cardW + gap);
     const y = startY + row * (cardH + gap);
 
+    const safeNum = sanitizeXmlId(student.studentNumber || `${j}`);
+    const safeId = sanitizeXmlId(student.id || `std_${j}`);
     const cardContent = renderStudentCardToSvgString(student, template, {
       side,
       includeRootTag: false,
-      idPrefix: `c${j}-${student.studentNumber || j}`,
+      idPrefix: `c${j}_${safeNum}_${safeId}`,
     });
 
     cardsSvg += `
-      <g id="card-${actualCol + 1}-${row + 1}-${student.studentNumber || j}" transform="translate(${x.toFixed(2)}, ${y.toFixed(2)}) scale(${scale.toFixed(6)})">
+      <g id="card_${actualCol + 1}_${row + 1}_${safeNum}" transform="translate(${x.toFixed(2)}, ${y.toFixed(2)}) scale(${scale.toFixed(6)})">
         ${cardContent}
       </g>
     `;
@@ -712,15 +860,22 @@ export async function exportCorelDrawZip(
   // 1. Individual Cards Folder
   const cardsFolder = zip.folder('Tekli_Kartlar_CR80_SVG');
   students.forEach((s, idx) => {
-    const safeNum = (s.studentNumber || `${idx + 1}`).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const safeNum = sanitizeXmlId(s.studentNumber || `${idx + 1}`);
     const safeName = (s.fullName || 'Ogrenci').replace(/[^a-zA-Z0-9_\u00C0-\u017F-]/g, '_');
+    const safeId = sanitizeXmlId(s.id || `std_${idx}`);
     const baseName = `${safeNum}_${safeName}`;
 
-    const frontSvg = renderStudentCardToSvgString(s, template, { side: 'front' });
+    const frontSvg = renderStudentCardToSvgString(s, template, {
+      side: 'front',
+      idPrefix: `single_${safeId}_${safeNum}_front`,
+    });
     cardsFolder?.file(`${baseName}_On.svg`, frontSvg);
 
     if (includeBack) {
-      const backSvg = renderStudentCardToSvgString(s, template, { side: 'back' });
+      const backSvg = renderStudentCardToSvgString(s, template, {
+        side: 'back',
+        idPrefix: `single_${safeId}_${safeNum}_back`,
+      });
       cardsFolder?.file(`${baseName}_Arka.svg`, backSvg);
     }
   });

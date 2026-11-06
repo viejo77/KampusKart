@@ -69,7 +69,7 @@ export function createVisitorBadgeAvatarSvg(
     
     <!-- Micro Security Text -->
     <text x="150" y="352" font-family="Arial, sans-serif" font-size="9" font-weight="600" fill="#94a3b8" text-anchor="middle" letter-spacing="0.5">
-      ${badgeTitle.toUpperCase()}
+      ${badgeTitle.toLocaleUpperCase('tr-TR')}
     </text>
   </svg>`;
 
@@ -95,7 +95,7 @@ export function generateVisitorCards(
   options: VisitorCardOptions
 ): StudentRecord[] {
   const safeCount = Math.max(1, Math.min(200, count));
-  const prefix = (options.prefix || 'ZYR').trim().toUpperCase();
+  const prefix = (options.prefix || 'ZYR').trim().toLocaleUpperCase('tr-TR');
   const subtitle = options.subtitle || 'Günübirlik Misafir Girişi';
   const validity = options.validity || 'GÜNÜBİRLİK';
   const startNum = options.startNumber || 1;
@@ -146,7 +146,7 @@ export function generateStaffCards(
   options: StaffCardOptions
 ): StudentRecord[] {
   const safeCount = Math.max(1, Math.min(200, count));
-  const prefix = (options.prefix || 'GRV').trim().toUpperCase();
+  const prefix = (options.prefix || 'GRV').trim().toLocaleUpperCase('tr-TR');
   const subtitle = options.subtitle || 'Sınav & Etkinlik Görevlisi';
   const validity = options.validity || '2026-2027';
   const startNum = options.startNumber || 1;
